@@ -49,7 +49,11 @@
     tabs.push(['obras', 'list', 'Obras']);
     if (isAdmin) tabs.push(['postventa', 'phone', 'Post-venta']);
     tabs.push(['mas', 'menu', 'Más']);
-    tabsEl.replaceChildren(...tabs.map(([id, ic, label]) => h('button', { type: 'button', 'data-tab': id, onclick: () => go(id) }, icon(ic), h('span', label))));
+    tabsEl.replaceChildren(...tabs.map(([id, ic, label]) => h('button', { type: 'button', 'data-tab': id, onclick: () => go(id) }, icon(ic), h('span', label))),
+      // Sólo en la compu: accesos a las otras apps de Slavon, abajo del menú.
+      h('div.side-only.side-apps', h('div.side-title', 'Otras apps'),
+        h('a', { href: 'https://caixx32.github.io/flota-slavon/' }, 'Flota'),
+        h('a.off', 'Administración'), h('a.off', 'Depósito'), h('a.off', 'Personal')));
     tabsEl.hidden = false;
   }
 

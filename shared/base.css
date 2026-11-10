@@ -210,3 +210,34 @@ dialog.sheet::backdrop { background: rgba(0, 0, 0, .45); }
 .auth-box .err { background: rgba(229, 13, 45, .2); color: #fff; border-radius: 10px; padding: 10px; margin-top: 14px; font-size: 14px; }
 .seg button:focus, .sheet .btn:focus { outline: none; }
 .sheet-actions .btn { flex: 1; }
+
+/* ---------- En la compu: menú al costado en lugar de pestañas abajo ---------- */
+@media (min-width: 900px) {
+  body { padding-bottom: 24px; padding-left: 232px; }
+  body.no-tabs { padding-left: 0; }
+  .topbar { margin-left: -232px; padding-left: 22px; }
+  .tabs {
+    top: 0; bottom: 0; right: auto; width: 232px; z-index: 19;
+    flex-direction: column; gap: 4px; padding: 72px 12px 16px;
+    border-top: 0; border-right: 1px solid var(--line);
+  }
+  .tabs button {
+    flex: none; flex-direction: row; justify-content: flex-start; gap: 12px;
+    padding: 11px 14px; border-radius: 12px; font-size: 15px; color: var(--muted);
+  }
+  .tabs button:hover { background: var(--card-2); color: var(--text); }
+  .tabs button.active { background: var(--red-soft); color: var(--red); }
+  main { padding: 24px 28px; }
+  .fab { bottom: 28px; right: 28px; }
+  .toast { bottom: 28px; }
+}
+.side-only { display: none; }
+@media (min-width: 900px) {
+  .side-only { display: block; }
+  .side-apps { margin-top: auto; border-top: 1px solid var(--line); padding: 14px 6px 0; }
+  .side-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin: 0 8px 6px; }
+  .side-apps a { display: block; padding: 8px; border-radius: 10px; color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600; }
+  .side-apps a:hover { background: var(--card-2); color: var(--text); }
+  .side-apps a.off { opacity: .45; pointer-events: none; }
+  .side-apps a.off::after { content: ' · próximamente'; font-weight: 400; }
+}
