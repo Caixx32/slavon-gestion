@@ -102,7 +102,6 @@ window.SGCloud = (() => {
     let data = {};
     try { data = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { data = {}; }
     const subs = new Set();
-    let seeded = !!data._seeded;
 
     const save = () => {
       try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* sin lugar: quedan sólo en memoria */ }
@@ -162,10 +161,11 @@ window.SGCloud = (() => {
       newId: () => Math.random().toString(36).slice(2, 12) + Date.now().toString(36),
       serverTime: () => new Date().toISOString(),
       // Para cargar datos de ejemplo la primera vez.
-      seedOnce(fn) {
-        if (seeded) return;
-        seeded = true;
-        data._seeded = true;
+      // Carga los datos de ejemplo la primera vez (o cuando cambia la versión de los ejemplos).
+      seedOnce(version, fn) {
+        if (data._seeded === version) return;
+        for (const k of Object.keys(data)) delete data[k];
+        data._seeded = version;
         fn((c, id, d) => { col(c)[id] = d; });
         save();
       },

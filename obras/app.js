@@ -1368,44 +1368,109 @@
 
   /* ---------- Datos de ejemplo (sólo modo demo) ---------- */
 
+  // Foto de ejemplo dibujada en el navegador (una cancha vista desde arriba con un texto).
+  function fotoEjemplo(texto, tono = '#2f8f46', padel = false) {
+    const c = document.createElement('canvas');
+    c.width = 640; c.height = 420;
+    const x = c.getContext('2d');
+    for (let i = 0; i < 12; i++) { x.fillStyle = i % 2 ? tono : shade(tono, -14); x.fillRect(i * 54, 0, 54, 420); }
+    x.strokeStyle = '#fff'; x.lineWidth = 5;
+    if (padel) { x.strokeRect(70, 40, 500, 340); x.beginPath(); x.moveTo(320, 40); x.lineTo(320, 380); x.moveTo(180, 40); x.lineTo(180, 380); x.moveTo(460, 40); x.lineTo(460, 380); x.stroke(); x.strokeStyle = 'rgba(200,230,255,.8)'; x.lineWidth = 10; x.strokeRect(60, 30, 520, 360); }
+    else { x.strokeRect(40, 30, 560, 360); x.beginPath(); x.moveTo(320, 30); x.lineTo(320, 390); x.stroke(); x.beginPath(); x.arc(320, 210, 60, 0, Math.PI * 2); x.stroke(); x.strokeRect(40, 130, 70, 160); x.strokeRect(530, 130, 70, 160); }
+    x.fillStyle = 'rgba(0,0,0,.55)'; x.fillRect(0, 360, 640, 60);
+    x.fillStyle = '#fff'; x.font = 'bold 24px sans-serif'; x.fillText(texto, 18, 398);
+    return c.toDataURL('image/jpeg', 0.7).split(',')[1];
+    function shade(hex, d) {
+      const n = parseInt(hex.slice(1), 16);
+      const f = (v) => Math.max(0, Math.min(255, v + d));
+      return '#' + [f(n >> 16), f((n >> 8) & 255), f(n & 255)].map((v) => v.toString(16).padStart(2, '0')).join('');
+    }
+  }
+
   function seedDemo() {
-    cloud.seedOnce((put) => {
+    cloud.seedOnce('v3', (put) => {
       const t = UI.today();
-      const ENC = 'encargado@demo.slavon';
+      const d = (n) => UI.addDays(t, n);
+      const DEL = 'administrativo@demo.slavon';
+      const BETO = 'encargado@demo.slavon';
       const CAR = 'carajo@demo.slavon';
-      const mk = (tipo, hechas, enCurso, opts) => window.obrasEtapas(tipo, opts).map((nombre, i) => ({
+      const TOM = 'tomas@demo.slavon';
+      put('users', DEL, { nombre: 'Delfina (demo)', apps: { obras: 'administrativo' }, activo: true, super: false });
+      put('users', 'melina@demo.slavon', { nombre: 'Melina (demo)', apps: { obras: 'administrativo' }, activo: true, super: false });
+      put('users', BETO, { nombre: 'Beto (demo)', apps: { obras: 'encargado' }, activo: true, super: false });
+      put('users', CAR, { nombre: 'Carajo (demo)', apps: { obras: 'encargado' }, activo: true, super: false });
+      put('users', TOM, { nombre: 'Tomás (demo)', apps: { obras: 'encargado' }, activo: true, super: false });
+      put('config', 'obras', { equipos: ['Equipo AMBA 1', 'Equipo AMBA 2', 'Equipo AMBA 3', 'Instalador interior 1', 'Instalador interior 2'] });
+
+      // Etapas: las primeras «hechas» con fecha, la siguiente «en curso» si corresponde.
+      const etapas = (tipo, hechas, enCurso, opts = {}, desde = -2 * hechas, quien = 'Beto (demo)') => window.obrasEtapas(tipo, opts).map((nombre, i) => ({
         id: 'e' + i, nombre,
         estado: i < hechas ? 'hecha' : i === hechas && enCurso ? 'en_curso' : 'pendiente',
-        fecha: i < hechas ? UI.addDays(t, -(hechas - i) * 2) : '', porNombre: i < hechas ? 'Beto (demo)' : '', por: i < hechas ? ENC : '', nota: '',
+        fecha: i < hechas ? d(desde + i * 2) : '', porNombre: i < hechas ? quien : '', por: '', nota: '',
       }));
-      const ch = (tipo, all) => checklistDefault(tipo).map((c) => (all ? { ...c, ok: true, porNombre: 'Carajo (demo)', fecha: t } : c));
+      const check = (tipo, todo, opts) => checklistDefault(tipo, opts).map((c) => (todo ? { ...c, ok: true, porNombre: 'Carajo (demo)', fecha: t } : c));
       const pv = (fin, hechos) => window.OBRAS_POSTVENTA.map((p, i) => ({ id: p.id, label: p.label, fecha: UI.addMonths(fin, p.meses), hecho: i < hechos, nota: i < hechos ? 'Todo bien, contentos con la cancha.' : '', porNombre: i < hechos ? 'Delfina (demo)' : '', hechoFecha: i < hechos ? UI.addMonths(fin, p.meses) : '' }));
-      put('users', 'administrativo@demo.slavon', { nombre: 'Delfina (demo)', apps: { obras: 'administrativo' }, activo: true, super: false });
-      put('users', ENC, { nombre: 'Beto (demo)', apps: { obras: 'encargado' }, activo: true, super: false });
-      put('users', CAR, { nombre: 'Carajo (demo)', apps: { obras: 'encargado' }, activo: true, super: false });
-      const base = { cliente: 'Contacto de ejemplo', incidencias: [], flete: '', editadoPorNombre: 'Delfina (demo)', creadoPorNombre: 'Delfina (demo)', cantidad: 1, interior: false, logistica: [], garantiaMeses: '12' };
-      const obra = (id, o, v) => { put('obras', id, { ...base, ...o }); put('ventas', id, v); };
+      const base = { incidencias: [], flete: '', editadoPorNombre: 'Delfina (demo)', creadoPorNombre: 'Delfina (demo)', cantidad: 1, interior: false, logistica: [], garantiaMeses: '12', postventa: [], responsable: '', equipo: '', instInicio: '', instFin: '', fin: '' };
+      const obra = (id, o, v) => { put('obras', id, { ...base, ...o }); put('ventas', id, { vendio: 'Melina', ...v }); };
+      const foto = (obraId, etapaId, texto, padel, dias = 0, quien = 'Beto (demo)') => put('fotos', obraId + '_' + etapaId + '_' + texto.length, {
+        obraId, etapaId, data: fotoEjemplo(texto, padel ? '#2b6cb0' : '#2f8f46', padel), nota: '', por: '', porNombre: quien, fecha: new Date(Date.now() + dias * 864e5).toISOString(),
+      });
 
-      obra('demo1', { nombre: 'Club Huracán – Cancha 1 (ejemplo)', tipo: 'futbol', m2: '1800', cesped: 'Monofilamento 50 mm verde', telefono: '11 5555 0001', ubicacion: 'Parque Patricios, CABA', fechaVenta: UI.addDays(t, -40), plazo: 'fabricacion', fechaEntrega: UI.addDays(t, -12), estado: 'en_curso', habilitadaFecha: UI.addDays(t, -14), habilitadaPorNombre: 'Delfina (demo)', instInicio: UI.addDays(t, -10), instFin: UI.addDays(t, 2), equipo: 'Equipo AMBA 1', responsable: CAR, flete: 'Transporte del Sur · llegó el ' + UI.fmtDay(UI.addDays(t, -11)), etapas: mk('futbol', 5, true), checklist: ch('futbol'), postventa: [] },
-        { precioUSD: '38000', senaUSD: '19000', senaFecha: UI.addDays(t, -40), formaPago: 'contado', vendio: 'Melina', saldoCobrado: true, saldoCobradoFecha: UI.addDays(t, -14), saldoCobradoPorNombre: 'Delfina (demo)' });
-      obra('demo2', { nombre: 'La Finca – Pádel 2 y 3 (ejemplo)', tipo: 'padel_completa', cantidad: 2, m2: '400', cesped: 'Textil pádel azul', telefono: '11 5555 0002', ubicacion: 'Pilar, Buenos Aires', fechaVenta: UI.addDays(t, -50), plazo: 'fabricacion', fechaEntrega: UI.addDays(t, -6), estado: 'en_curso', habilitadaFecha: UI.addDays(t, -8), instInicio: UI.addDays(t, -5), instFin: UI.addDays(t, 4), equipo: 'Equipo AMBA 2', responsable: ENC, etapas: mk('padel_completa', 5, true), checklist: ch('padel_completa'), postventa: [] },
-        { precioUSD: '52000', senaUSD: '15600', formaPago: 'financiado', vendio: 'Melina', contratoFirmado: true, contratoFecha: UI.addDays(t, -9), contratoPorNombre: 'Delfina (demo)' });
-      obra('demo5', { nombre: 'Club Norte – Pádel 1 (ejemplo)', tipo: 'padel_completa', m2: '200', telefono: '11 5555 0005', ubicacion: 'Córdoba capital', interior: true, logistica: window.OBRAS_LOGISTICA.map((texto, i) => ({ id: 'l' + i, texto, ok: i < 2, porNombre: i < 2 ? 'Carajo (demo)' : '', fecha: i < 2 ? UI.addDays(t, -15) : '' })), fechaVenta: UI.addDays(t, -45), plazo: 'fabricacion', fechaEntrega: UI.addDays(t, -16), estado: 'en_curso', instInicio: UI.addDays(t, -14), instFin: UI.addDays(t, -10), equipo: 'Instalador interior 1', responsable: CAR,
-        etapas: mk('padel_completa', 3, false).map((e) => (e.fecha ? { ...e, fecha: UI.addDays(e.fecha, -10) } : e)), checklist: ch('padel_completa'), postventa: [],
-        incidencias: [{ id: 'i1', tipo: 'Falta material', detalle: 'Faltan 4 vidrios laterales, se pidieron a fábrica', avisadoCliente: true, resuelta: false, fecha: UI.addDays(t, -11), porNombre: 'Carajo (demo)' }] },
-        { precioUSD: '27000', senaUSD: '13500', formaPago: 'contado', vendio: 'Melina', saldoCobrado: true, saldoCobradoFecha: UI.addDays(t, -18) });
-      obra('demo6', { nombre: 'Club Los Robles – Pádel 1 y 2 (ejemplo)', tipo: 'padel_cesped', cantidad: 2, m2: '400', cesped: 'Fibrilado 12 mm verde', telefono: '11 5555 0006', ubicacion: 'Tigre, Buenos Aires', fechaVenta: UI.addDays(t, -2), plazo: 'inmediata', fechaEntrega: UI.addDays(t, 3), estado: 'vendida', etapas: mk('padel_cesped', 0), checklist: ch('padel_cesped'), postventa: [] },
-        { precioUSD: '9600', senaUSD: '4800', senaFecha: UI.addDays(t, -2), formaPago: 'contado', vendio: 'Melina', saldoCobrado: false });
-      obra('demo7', { nombre: 'Escuela San Martín – F7 (ejemplo)', tipo: 'futbol', m2: '1200', cesped: 'Monofilamento 50 mm', telefono: '11 5555 0007', ubicacion: 'Lanús, Buenos Aires', fechaVenta: UI.addDays(t, -6), plazo: 'fabricacion', fechaEntrega: UI.addDays(t, 19), estado: 'vendida', etapas: mk('futbol', 0), checklist: ch('futbol'), postventa: [] },
-        { precioUSD: '24000', senaUSD: '7200', formaPago: 'financiado', vendio: 'Melina', contratoFirmado: false });
-      obra('demo8', { nombre: 'Casa Fernández – Jardín (ejemplo)', tipo: 'residencial', m2: '90', cesped: 'Paisajismo 35 mm', telefono: '11 5555 0008', ubicacion: 'Adrogué, Buenos Aires', fechaVenta: UI.addDays(t, -20), plazo: 'inmediata', fechaEntrega: UI.addDays(t, 5), estado: 'vendida', etapas: mk('residencial', 0), checklist: ch('residencial'), postventa: [] },
-        { precioUSD: '2100', senaUSD: '1050', formaPago: 'contado', vendio: 'Melina', saldoCobrado: true, saldoCobradoFecha: UI.addDays(t, -1) });
-      const fin3 = UI.addMonths(UI.addDays(t, 3), -1);
-      obra('demo3', { nombre: 'Tercer Tiempo – F5 (ejemplo)', tipo: 'futbol', m2: '800', telefono: '11 5555 0003', ubicacion: 'Morón, Buenos Aires', fechaVenta: UI.addDays(fin3, -40), fechaEntrega: UI.addDays(fin3, -10), instInicio: UI.addDays(fin3, -6), instFin: fin3, equipo: 'Equipo AMBA 3', responsable: ENC, estado: 'terminada', fin: fin3, etapas: mk('futbol', 10), checklist: ch('futbol', true), postventa: pv(fin3, 0) },
+      /* ----- Vendidas ----- */
+      obra('v1', { nombre: 'Club Los Robles – Pádel 1 y 2', tipo: 'padel_cesped', cantidad: 2, m2: '400', cesped: 'Fibrilado 12 mm verde', conArena: true, conCaucho: false, cliente: 'Martín Robles', telefono: '11 5555 0101', ubicacion: 'Tigre, Buenos Aires', fechaVenta: d(-2), plazo: 'inmediata', fechaEntrega: d(3), estado: 'vendida', etapas: etapas('padel_cesped', 0), checklist: check('padel_cesped') },
+        { precioUSD: '9600', senaUSD: '4800', senaFecha: d(-2), formaPago: 'contado', saldoCobrado: false });
+      obra('v2', { nombre: 'Escuela San Martín – F7', tipo: 'futbol', m2: '1200', cesped: 'Monofilamento 50 mm', cliente: 'Escuela San Martín (Lic. Paz)', telefono: '11 5555 0102', ubicacion: 'Lanús, Buenos Aires', fechaVenta: d(-6), plazo: 'fabricacion', fechaEntrega: d(19), estado: 'vendida', etapas: etapas('futbol', 0), checklist: check('futbol'), consideraciones: 'Plano en la carpeta del cliente. Acceso por calle lateral para el camión.' },
+        { precioUSD: '24000', senaUSD: '7200', senaFecha: d(-6), formaPago: 'financiado', contratoFirmado: false });
+      obra('v3', { nombre: 'Casa Fernández – Jardín', tipo: 'residencial', m2: '90', cesped: 'Paisajismo 35 mm', conArena: false, conCaucho: false, cliente: 'Laura Fernández', telefono: '11 5555 0103', ubicacion: 'Adrogué, Buenos Aires', fechaVenta: d(-20), plazo: 'inmediata', fechaEntrega: d(5), estado: 'vendida', etapas: etapas('residencial', 0), checklist: check('residencial'), garantiaMeses: '24' },
+        { precioUSD: '2100', senaUSD: '1050', senaFecha: d(-20), formaPago: 'contado', saldoCobrado: true, saldoCobradoFecha: d(-1), saldoCobradoPorNombre: 'Delfina (demo)', saldoTC: '1570', saldoARS: '1648500' });
+      obra('v4', { nombre: 'Club Atlético Ituzaingó – Hockey', tipo: 'hockey', m2: '5200', cesped: 'Hockey arena 22 mm azul', cliente: 'C. A. Ituzaingó (Comisión)', telefono: '11 5555 0104', ubicacion: 'Ituzaingó, Buenos Aires', fechaVenta: d(-28), plazo: 'fabricacion', fechaEntrega: d(2), estado: 'vendida', etapas: etapas('hockey', 0), checklist: check('hockey') },
+        { precioUSD: '86000', senaUSD: '25800', senaFecha: d(-28), formaPago: 'financiado', contratoFirmado: false, notasVenta: 'Financiado en 12 cuotas. Falta que firme el presidente del club.' });
+      obra('v5', { nombre: 'Padel Point Rosario – 3 canchas', tipo: 'padel_completa', cantidad: 3, m2: '600', cesped: 'Textil pádel azul', cliente: 'Padel Point SRL', telefono: '341 555 0105', ubicacion: 'Rosario, Santa Fe', interior: true, logistica: window.OBRAS_LOGISTICA.map((texto, i) => ({ id: 'l' + i, texto, ok: false })), fechaVenta: d(-4), plazo: 'fabricacion', fechaEntrega: d(24), estado: 'vendida', etapas: etapas('padel_completa', 0), checklist: check('padel_completa') },
+        { precioUSD: '81000', senaUSD: '40500', senaFecha: d(-4), formaPago: 'contado', saldoCobrado: false });
+      obra('v6', { nombre: 'Sr. Gómez – césped sin instalación', tipo: 'futbol', m2: '300', cesped: 'Monofilamento 40 mm', conInstalacion: false, cliente: 'Ricardo Gómez', telefono: '11 5555 0106', ubicacion: 'Merlo, Buenos Aires', fechaVenta: d(-7), plazo: 'inmediata', fechaEntrega: d(-1), estado: 'vendida', etapas: etapas('futbol', 0, false, { conInstalacion: false }), checklist: check('futbol', false, { conInstalacion: false }) },
+        { precioUSD: '3900', senaUSD: '1950', senaFecha: d(-7), formaPago: 'contado', saldoCobrado: false });
+
+      /* ----- En entrega ----- */
+      obra('e1', { nombre: 'Club Huracán – Cancha 1', tipo: 'futbol', m2: '1800', cesped: 'Monofilamento 50 mm verde', cliente: 'C. A. Huracán (Intendencia)', telefono: '11 5555 0201', ubicacion: 'Parque Patricios, CABA', fechaVenta: d(-40), plazo: 'fabricacion', fechaEntrega: d(-12), estado: 'en_curso', habilitadaFecha: d(-14), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(-10), instFin: d(2), equipo: 'Equipo AMBA 1', responsable: CAR, flete: 'Transporte del Sur · llegó el ' + UI.fmtDay(d(-11)), etapas: etapas('futbol', 5, true, {}, -10), checklist: check('futbol') },
+        { precioUSD: '38000', senaUSD: '19000', senaFecha: d(-40), formaPago: 'contado', saldoCobrado: true, saldoCobradoFecha: d(-14), saldoCobradoPorNombre: 'Delfina (demo)', saldoTC: '1545', saldoARS: '29355000' });
+      obra('e2', { nombre: 'La Finca – Pádel 2 y 3', tipo: 'padel_completa', cantidad: 2, m2: '400', cesped: 'Textil pádel azul', cliente: 'La Finca Country (Adm.)', telefono: '11 5555 0202', ubicacion: 'Pilar, Buenos Aires', fechaVenta: d(-50), plazo: 'fabricacion', fechaEntrega: d(-6), estado: 'en_curso', habilitadaFecha: d(-8), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(-5), instFin: d(4), equipo: 'Equipo AMBA 2', responsable: BETO, etapas: etapas('padel_completa', 5, true, {}, -5), checklist: check('padel_completa') },
+        { precioUSD: '52000', senaUSD: '15600', formaPago: 'financiado', contratoFirmado: true, contratoFecha: d(-9), contratoPorNombre: 'Delfina (demo)' });
+      obra('e3', { nombre: 'Club Norte – Pádel 1', tipo: 'padel_completa', m2: '200', cesped: 'Textil pádel verde', cliente: 'Club Norte (Sr. Paredes)', telefono: '351 555 0203', ubicacion: 'Córdoba capital', interior: true, logistica: window.OBRAS_LOGISTICA.map((texto, i) => ({ id: 'l' + i, texto, ok: i < 3, porNombre: i < 3 ? 'Carajo (demo)' : '', fecha: i < 3 ? d(-15) : '' })), fechaVenta: d(-45), plazo: 'fabricacion', fechaEntrega: d(-16), estado: 'en_curso', habilitadaFecha: d(-18), instInicio: d(-14), instFin: d(-10), equipo: 'Instalador interior 1', responsable: CAR,
+        etapas: etapas('padel_completa', 3, false, {}, -14, 'Carajo (demo)'), checklist: check('padel_completa'),
+        incidencias: [{ id: 'i1', tipo: 'Falta material', detalle: 'Faltan 4 vidrios laterales, se pidieron a fábrica', avisadoCliente: true, resuelta: false, fecha: d(-11), porNombre: 'Carajo (demo)' }] },
+        { precioUSD: '27000', senaUSD: '13500', formaPago: 'contado', saldoCobrado: true, saldoCobradoFecha: d(-18), saldoTC: '1540', saldoARS: '20790000' });
+      obra('e4', { nombre: 'Tenis Club Banfield – Cancha 3', tipo: 'tenis', m2: '670', cesped: 'Tenis arena 20 mm', cliente: 'Tenis Club Banfield', telefono: '11 5555 0204', ubicacion: 'Banfield, Buenos Aires', fechaVenta: d(-30), plazo: 'fabricacion', fechaEntrega: d(1), estado: 'en_curso', habilitadaFecha: d(-2), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(2), instFin: d(4), equipo: 'Equipo AMBA 3', responsable: BETO, flete: 'A coordinar', etapas: etapas('tenis', 0), checklist: check('tenis') },
+        { precioUSD: '14500', senaUSD: '7250', formaPago: 'contado', saldoCobrado: true, saldoCobradoFecha: d(-2), saldoTC: '1570', saldoARS: '11382500' });
+      obra('e5', { nombre: 'Complejo La Cantera – F5 1 y 2', tipo: 'futbol', cantidad: 2, m2: '1100', cesped: 'Monofilamento 50 mm', cliente: 'La Cantera SA', telefono: '11 5555 0205', ubicacion: 'Moreno, Buenos Aires', fechaVenta: d(-22), plazo: 'fabricacion', fechaEntrega: d(6), estado: 'en_curso', habilitadaFecha: t, habilitadaPorNombre: 'Delfina (demo)', responsable: BETO, etapas: etapas('futbol', 0), checklist: check('futbol') },
+        { precioUSD: '30500', senaUSD: '15250', formaPago: 'contado', saldoCobrado: true, saldoCobradoFecha: t, saldoTC: '1570', saldoARS: '23942500' });
+      obra('e6', { nombre: 'Colegio Sarmiento – Multisport', tipo: 'multisport', m2: '450', cesped: 'Multisport 25 mm verde/rojo', cliente: 'Colegio Sarmiento', telefono: '11 5555 0206', ubicacion: 'Haedo, Buenos Aires', fechaVenta: d(-25), plazo: 'fabricacion', fechaEntrega: d(1), estado: 'en_curso', habilitadaFecha: d(-1), instInicio: d(1), instFin: d(3), equipo: 'Equipo AMBA 1', responsable: CAR, etapas: etapas('multisport', 0), checklist: check('multisport') },
+        { precioUSD: '9800', senaUSD: '4900', formaPago: 'contado', saldoCobrado: true, saldoCobradoFecha: d(-1) });
+      obra('e7', { nombre: 'Tercer Tiempo – Mantenimiento F5', tipo: 'mantenimiento', m2: '800', cliente: 'Tercer Tiempo (Diego)', telefono: '11 5555 0207', ubicacion: 'Morón, Buenos Aires', fechaVenta: d(-3), plazo: 'inmediata', fechaEntrega: d(8), estado: 'en_curso', habilitadaFecha: d(-1), instInicio: d(8), instFin: d(8), equipo: 'Equipo AMBA 3', responsable: TOM, etapas: etapas('mantenimiento', 0), checklist: [{ id: 'c1', texto: 'Arena recargada y pareja', ok: false }, { id: 'c2', texto: 'Uniones revisadas', ok: false }, { id: 'c3', texto: 'Informe enviado al cliente', ok: false }], garantiaMeses: '' },
+        { precioUSD: '650', senaUSD: '650', formaPago: 'contado', saldoCobrado: true });
+
+      /* ----- Entregadas ----- */
+      const fin1 = UI.addMonths(d(3), -1);
+      obra('t1', { nombre: 'Tercer Tiempo – F5', tipo: 'futbol', m2: '800', cesped: 'Monofilamento 50 mm', cliente: 'Tercer Tiempo (Diego)', telefono: '11 5555 0207', ubicacion: 'Morón, Buenos Aires', fechaVenta: UI.addDays(fin1, -40), fechaEntrega: UI.addDays(fin1, -10), instInicio: UI.addDays(fin1, -6), instFin: fin1, equipo: 'Equipo AMBA 3', responsable: BETO, estado: 'terminada', fin: fin1, etapas: etapas('futbol', 11, false, {}, -40), checklist: check('futbol', true), postventa: pv(fin1, 0) },
         { precioUSD: '18000', senaUSD: '9000', formaPago: 'contado', saldoCobrado: true });
-      const fin4 = UI.addMonths(UI.addDays(t, 40), -12);
-      obra('demo4', { nombre: 'Centro Galicia – Pádel (ejemplo)', tipo: 'padel_cesped', m2: '200', telefono: '11 5555 0004', ubicacion: 'Avellaneda, Buenos Aires', fechaVenta: UI.addDays(fin4, -30), fechaEntrega: UI.addDays(fin4, -2), instInicio: fin4, instFin: fin4, equipo: 'Equipo AMBA 1', estado: 'terminada', fin: fin4, etapas: mk('padel_cesped', 9), checklist: ch('padel_cesped', true), postventa: pv(fin4, 1) },
+      const fin2 = UI.addMonths(d(40), -12);
+      obra('t2', { nombre: 'Centro Galicia – Pádel', tipo: 'padel_cesped', m2: '200', cesped: 'Fibrilado 12 mm', cliente: 'Centro Galicia', telefono: '11 5555 0208', ubicacion: 'Avellaneda, Buenos Aires', fechaVenta: UI.addDays(fin2, -30), fechaEntrega: UI.addDays(fin2, -2), instInicio: fin2, instFin: fin2, equipo: 'Equipo AMBA 1', estado: 'terminada', fin: fin2, etapas: etapas('padel_cesped', 9, false, {}, -330), checklist: check('padel_cesped', true), postventa: pv(fin2, 1) },
         { precioUSD: '4800', senaUSD: '2400', formaPago: 'contado', saldoCobrado: true });
+      const fin3 = d(-5);
+      obra('t3', { nombre: 'Club Mitre – Pádel 1 a 4', tipo: 'padel_completa', cantidad: 4, m2: '800', cesped: 'Textil pádel azul', cliente: 'Club Mitre (Sr. Ledesma)', telefono: '11 5555 0209', ubicacion: 'San Martín, Buenos Aires', fechaVenta: d(-70), fechaEntrega: d(-26), instInicio: d(-25), instFin: fin3, equipo: 'Equipo AMBA 2', responsable: BETO, estado: 'terminada', fin: fin3, etapas: etapas('padel_completa', 14, false, {}, -25), checklist: check('padel_completa', true), postventa: pv(fin3, 0) },
+        { precioUSD: '104000', senaUSD: '31200', formaPago: 'financiado', contratoFirmado: true, contratoFecha: d(-30) });
+      const fin4 = UI.addMonths(d(-10), -12);
+      obra('t4', { nombre: 'Barrio Los Álamos – Residencial', tipo: 'residencial', m2: '140', cesped: 'Paisajismo 40 mm', conArena: false, cliente: 'Familia Ortiz', telefono: '11 5555 0210', ubicacion: 'Canning, Buenos Aires', fechaVenta: UI.addDays(fin4, -15), fechaEntrega: fin4, instInicio: fin4, instFin: fin4, equipo: 'Equipo AMBA 3', estado: 'terminada', fin: fin4, etapas: etapas('residencial', 8, false, {}, -380), checklist: check('residencial', true), postventa: pv(fin4, 3), garantiaMeses: '24' },
+        { precioUSD: '3200', senaUSD: '1600', formaPago: 'contado', saldoCobrado: true });
+
+      /* ----- Fotos ----- */
+      foto('e1', 'e2', 'Huracán · base lista', false, -8, 'Carajo (demo)');
+      foto('e1', 'e3', 'Huracán · tendido', false, -6, 'Carajo (demo)');
+      foto('e1', 'e4', 'Huracán · pegado del verde', false, -4, 'Carajo (demo)');
+      foto('e2', 'e2', 'La Finca · estructura', true, -3);
+      foto('e3', '', 'Club Norte · faltan vidrios', true, -11, 'Carajo (demo)');
+      foto('t3', 'e13', 'Club Mitre · cancha 1 terminada', true, -5);
+      foto('t3', 'e13', 'Club Mitre · cancha 2 terminada', true, -5);
+      foto('t3', 'e13', 'Club Mitre · canchas 3 y 4', true, -5);
     });
   }
 })();
