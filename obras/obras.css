@@ -111,3 +111,37 @@ body.wide main { max-width: 1320px; }
   .acta { box-shadow: none; padding: 0; margin: 0; max-width: none; }
   .acta-edit { border: 0; padding: 0; }
 }
+
+/* ---------- Áreas ---------- */
+.area-head h1 { font-size: 26px; }
+.area-kicker { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--red); }
+.count { display: inline-block; margin-left: 8px; font-size: 12px; font-weight: 700; color: var(--muted); background: var(--card-2); border-radius: 99px; padding: 1px 8px; vertical-align: middle; }
+
+.flow { display: grid; grid-template-columns: repeat(4, minmax(230px, 1fr)); gap: 12px; overflow-x: auto; margin-top: 14px; padding-bottom: 6px; }
+.flow-col { background: var(--card-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; min-height: 160px; }
+.flow-head { padding: 4px 4px 10px; cursor: pointer; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.flow-head b { font-size: 15px; }
+
+.stepper { display: flex; gap: 4px; margin: 16px 0 12px; }
+.step { flex: 1; display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 10px; background: var(--card-2); color: var(--faint); font-size: 13px; font-weight: 600; min-width: 0; }
+.step-dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--line); color: var(--muted); font-size: 12px; flex: none; }
+.step-dot svg.i { width: 14px; height: 14px; stroke-width: 3; }
+.step-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step.done { color: var(--ok); }
+.step.done .step-dot { background: var(--ok); color: #fff; }
+.step.on { background: var(--red-soft); color: var(--red); }
+.step.on .step-dot { background: var(--red); color: #fff; }
+@media (max-width: 520px) { .step-name { font-size: 11px; } .step { padding: 6px 4px; gap: 4px; } }
+
+.obra-tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--line); margin: 4px 0 14px; overflow-x: auto; }
+.obra-tabs button { border: 0; background: none; padding: 10px 14px; font-size: 15px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; white-space: nowrap; position: relative; }
+.obra-tabs button.on { color: var(--text); border-bottom-color: var(--red); }
+.obra-tabs button.actual::after { content: ''; position: absolute; top: 8px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--red); }
+
+.paso { display: flex; align-items: center; gap: 12px; background: var(--card); border-left: 4px solid var(--red); border-radius: 12px; box-shadow: var(--shadow); padding: 12px 14px; font-weight: 600; }
+.step { border: 0; font: inherit; cursor: pointer; text-align: left; border-bottom: 3px solid transparent; border-radius: 10px 10px 4px 4px; }
+.step:disabled { cursor: default; opacity: .6; }
+.step.sel { border-bottom-color: var(--text); box-shadow: var(--shadow); }
+.stepper { margin-bottom: 16px; }
+.step-short { display: none; }
+@media (max-width: 520px) { .step-name { display: none; } .step-short { display: inline; } }
