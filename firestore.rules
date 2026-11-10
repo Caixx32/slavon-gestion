@@ -28,7 +28,7 @@ service cloud.firestore {
       // (para elegir encargados de obra, etc.).
       allow read: if (signedIn() && email == myEmail())
         || isSuper()
-        || role('obras') == 'admin' || role('deposito') == 'admin';
+        || role('obras') in ['admin', 'administrativo', 'encargado'] || role('deposito') == 'admin';
       allow create, update: if isSuper() && email == email.lower()
         && request.resource.data.keys().hasOnly(['nombre', 'apps', 'super', 'activo', 'editadoPor', 'editadoEn'])
         && request.resource.data.nombre is string
@@ -39,18 +39,31 @@ service cloud.firestore {
     }
 
     /* ---------- Obras ---------- */
+    // admin: todo · administrativo: ventas y cobros (todo menos eliminar) · encargado: entrega e instalación.
     function obrasAdmin() { return role('obras') == 'admin'; }
-    function obrasMember() { return role('obras') in ['admin', 'encargado']; }
+    function obrasGestion() { return role('obras') in ['admin', 'administrativo']; }
+    function obrasMember() { return role('obras') in ['admin', 'administrativo', 'encargado']; }
 
     match /obras/{id} {
       allow read: if obrasMember();
-      allow create, delete: if obrasAdmin();
-      // El encargado sólo puede actualizar las etapas y el checklist (y queda registrado quién).
-      allow update: if obrasAdmin()
+      allow create: if obrasGestion();
+      allow delete: if obrasAdmin();
+      // El encargado de obra sólo toca lo de la entrega y la instalación (queda registrado quién).
+      allow update: if obrasGestion()
         || (obrasMember()
-          && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['etapas', 'checklist', 'editadoPor', 'editadoPorNombre', 'editadoEn'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'etapas', 'checklist', 'logistica', 'incidencias', 'instInicio', 'instFin', 'equipo', 'responsable', 'flete',
+            'estado', 'fin', 'postventa', 'editadoPor', 'editadoPorNombre', 'editadoEn'])
+          // puede marcar la obra como entregada, pero no habilitar una venta
+          && (!('estado' in request.resource.data.diff(resource.data).affectedKeys())
+            || (resource.data.estado == 'en_curso' && request.resource.data.estado == 'terminada'))
           && request.resource.data.editadoPor == myEmail());
+    }
+
+    // Plata de cada venta (precio, seña, forma de pago, saldo, contrato): sólo admin y administrativo.
+    match /ventas/{id} {
+      allow read, create, update: if obrasGestion();
+      allow delete: if obrasAdmin();
     }
 
     match /fotos/{id} {
@@ -60,9 +73,14 @@ service cloud.firestore {
         && request.resource.data.obraId is string
         && request.resource.data.data is string
         && request.resource.data.data.size() < 900000;
-      // Cada uno borra sus fotos; el admin, cualquiera.
       allow delete: if obrasAdmin() || (obrasMember() && resource.data.por == myEmail());
       allow update: if false;
+    }
+
+    // Configuración de Obras (equipos de instalación).
+    match /config/obras {
+      allow read: if obrasMember();
+      allow write: if obrasGestion();
     }
 
     // Lo que no está listado arriba (Administración, Depósito, Personal) queda cerrado hasta que se armen esas apps.

@@ -113,7 +113,7 @@ window.SG = (() => {
     const demoChip = top.querySelector('.chip.demo');
     if (cloud.demo) {
       demoChip.hidden = false;
-      demoChip.textContent = cloud.as() === 'admin' ? 'DEMO · Admin' : 'DEMO · Encargado';
+      demoChip.textContent = 'DEMO · ' + ({ admin: 'Admin', administrativo: 'Administrativo', encargado: 'Encargado de obra' }[cloud.as()]);
       demoChip.onclick = demoMenu;
     }
   }
@@ -121,10 +121,14 @@ window.SG = (() => {
   function demoMenu() {
     UI.sheet({
       title: 'Modo demo',
-      body: [h('p.muted', 'Estás viendo datos de ejemplo guardados sólo en este navegador. Nada de esto toca datos reales.')],
+      body: [
+        h('p.muted', 'Estás viendo datos de ejemplo guardados sólo en este navegador. Nada de esto toca datos reales.'),
+        h('div.list', [['admin', 'Ver como Admin (Juan)'], ['administrativo', 'Ver como Administrativo (Delfina)'], ['encargado', 'Ver como Encargado de obra (Beto)']].map(([k, t]) =>
+          h('div.item', { onclick: () => cloud.setAs(k) }, h('div.grow', { style: { fontWeight: cloud.as() === k ? 700 : 400 } }, t), cloud.as() === k ? UI.icon('check') : null))),
+      ],
       actions: [
         { label: 'Volver a empezar', kind: 'danger', onClick: () => cloud.reset() },
-        { label: cloud.as() === 'admin' ? 'Ver como encargado' : 'Ver como admin', kind: 'dark', onClick: () => cloud.setAs(cloud.as() === 'admin' ? 'encargado' : 'admin') },
+        { label: 'Cerrar' },
       ],
     });
   }

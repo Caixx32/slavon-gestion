@@ -14,31 +14,26 @@ Apps web internas de **SLAVON**. Cada app tiene su propio link, pero todas compa
 
 ## Obras
 
-- **Ventas:** se carga la venta con fecha de entrega y saldo. 7 días antes de la entrega avisa «Cobrar saldo» (en Inicio, Ventas y Panel). Al marcar el saldo cobrado la obra pasa a **En entrega**, con responsable y fechas de instalación.
-- **Estados:** Vendida → En entrega → Terminada.
-- **Agenda de instalación:** calendario mensual con una fecha (desde–hasta) por obra; césped en verde, canchas completas en azul y entregas comprometidas sin programar en naranja.
-- **Panel** (en la compu): indicadores, tablero por etapa y tabla de obras en entrega.
-- **Obras** con cliente, teléfono, ubicación, tipo, responsable de entrega, encargados y notas.
-- **Etapas** según el tipo (se copian al crear la obra y se pueden editar en cada obra):
-  - *Fútbol:* envío del césped → control de base apta → tendido → pegado del verde → corte para líneas blancas → pegado del blanco → arena → caucho → cepillado final.
-  - *Pádel solo césped:* igual que fútbol, sin caucho.
-  - *Pádel cancha completa:* control de base apta → pintura → montaje de estructura → cableado eléctrico → montaje de luces → vidrios → y después todo lo del césped (sin caucho).
-  - Cada etapa: pendiente / en curso / hecha, fecha, quién la marcó, nota y fotos.
-- **Fotos** por etapa o generales, comprimidas en el celular.
-- **Checklist de entrega** interno (control nuestro, el cliente no interviene). Se edita por obra.
-- **Post-venta:** al marcar la obra como terminada se agendan llamados al cliente al mes, a los 6 meses y al año. Pestaña *Post-venta* con vencidos y próximos, botones de llamar y WhatsApp (con mensaje armado) y nota de qué dijo el cliente.
-- Funciona sin señal: lo que se carga se sube solo cuando vuelve la conexión. Se instala como app en el celular.
+De la venta a la post-venta:
+
+1. **Venta** (administrativo): tipo de cancha y de césped, m², cantidad de canchas, con o sin instalación, arena, caucho, plano y consideraciones. Plazo inmediato (~5 días) o fabricación (20 a 30 días), que propone la fecha de entrega. Precio y seña en US$ (se paga en pesos al dólar oficial BNA vendedor del día; la app muestra el aproximado en pesos).
+2. **Condición para entregar:** contado → saldo cobrado antes de la entrega de materiales; financiado → contrato firmado en nuestro poder. 7 días antes de la entrega avisa lo que falte. Sin eso no se habilita la entrega.
+3. **Entrega** (encargado de obra): agenda de instalación con equipo (3 de AMBA + instaladores del interior) y aviso si un equipo queda en dos obras a la vez; duración sugerida (pádel completa 5 días por cancha, pádel césped 1). Flete, logística del interior (pasajes, estadía, comidas, ayudantes, viático), etapas con fotos, incidencias (ej: base no apta, con aviso al cliente) y checklist de entrega.
+4. **Acta de entrega** para imprimir o guardar en PDF y que firme el cliente: datos, controles, fotos y garantía.
+5. **Post-venta:** llamados al mes, a los 6 meses y al año, y control del vencimiento de la garantía.
+
+Tipos: fútbol, pádel solo césped, pádel cancha completa, hockey, tenis, residencial, multisport, mantenimiento (sólo clientes nuestros) y otro. Las etapas se arman según el tipo y lo vendido (arena, caucho, con o sin instalación) y se pueden editar en cada obra.
 
 ### Permisos
 
-| | Admin | Encargado de obra |
-|---|:-:|:-:|
-| Ver obras, etapas, fotos y checklist | ✔ | ✔ |
-| Marcar etapas, subir fotos, tildar checklist | ✔ | ✔ |
-| Crear, editar y eliminar obras; editar etapas y checklist | ✔ | ✘ |
-| Terminar obra y post-venta | ✔ | ✘ |
+| | Admin | Administrativo | Encargado de obra |
+|---|:-:|:-:|:-:|
+| Ver precios, señas, saldos y contratos | ✔ | ✔ | ✘ |
+| Cargar ventas, habilitar entregas, post-venta | ✔ | ✔ | ✘ |
+| Agenda, equipos, etapas, fotos, checklist, logística, incidencias, marcar entregada | ✔ | ✔ | ✔ |
+| Eliminar obras | ✔ | ✘ | ✘ |
 
-Los permisos los imponen las reglas de Firestore (`firestore.rules`), no sólo la pantalla.
+Los datos de plata están en una colección aparte (`ventas`) que el encargado de obra no puede leer: lo imponen las reglas de Firestore (`firestore.rules`), no sólo la pantalla.
 
 ## Usuarios
 
@@ -66,7 +61,7 @@ HTML, CSS y JavaScript sin compilación. Firebase (Auth + Firestore) por CDN. La
 
 ## Datos en Firestore
 
-`users/{mail}` (nombre, apps y permisos, activo) · `obras` (datos, `etapas`, `checklist`, `postventa`) · `fotos` (una por documento, con `obraId` y `etapaId`).
+`users/{mail}` (nombre, apps y permisos, activo) · `obras` (datos operativos, `etapas`, `checklist`, `incidencias`, `logistica`, `postventa`) · `ventas/{id de la obra}` (precio, seña, forma de pago, saldo, contrato) · `fotos` (una por documento, con `obraId` y `etapaId`) · `config/obras` (equipos de instalación).
 
 ## Actualizar una app
 

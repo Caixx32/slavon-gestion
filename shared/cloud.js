@@ -145,10 +145,13 @@ window.SGCloud = (() => {
       return Promise.resolve();
     }
 
-    const as = () => localStorage.getItem('sg-demo-as') || 'admin';
-    const user = () => (as() === 'admin'
-      ? { email: cfg.ownerEmail, name: 'Juan (demo)' }
-      : { email: 'encargado@demo.slavon', name: 'Encargado (demo)' });
+    const DEMO_USERS = {
+      admin: { email: cfg.ownerEmail, name: 'Juan (demo)' },
+      administrativo: { email: 'administrativo@demo.slavon', name: 'Delfina (demo)' },
+      encargado: { email: 'encargado@demo.slavon', name: 'Beto (demo)' },
+    };
+    const as = () => (DEMO_USERS[localStorage.getItem('sg-demo-as')] ? localStorage.getItem('sg-demo-as') : 'admin');
+    const user = () => DEMO_USERS[as()];
 
     return {
       init: async () => {},

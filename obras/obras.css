@@ -78,3 +78,36 @@ body.wide main { max-width: 1320px; }
   .cal-chip { font-size: 0; height: 6px; padding: 0; border-radius: 3px; }
   .cal-legend .cal-chip { font-size: 11px; height: auto; padding: 3px 6px; }
 }
+
+/* ---------- Acta de entrega ---------- */
+.acta-tools { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.acta {
+  background: #fff; color: #1a1f23; border-radius: 6px; box-shadow: var(--shadow);
+  padding: 34px 38px; max-width: 800px; margin: 10px auto 30px; font-size: 14px; line-height: 1.5;
+}
+.acta-head { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #e50d2d; padding-bottom: 14px; margin-bottom: 8px; }
+.acta-head img { height: 26px; }
+.acta-title { font-size: 22px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; text-align: right; }
+.acta-sub { font-size: 12px; color: #646d75; text-align: right; }
+.acta h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #22282c; margin: 18px 0 6px; border-bottom: 1px solid #e1e4e8; padding-bottom: 4px; }
+.acta-table { width: 100%; border-collapse: collapse; }
+.acta-table th { text-align: left; width: 150px; color: #646d75; font-weight: 600; padding: 3px 0; vertical-align: top; }
+.acta-table td { padding: 3px 0; }
+.acta-check { list-style: none; padding: 0; margin: 0; columns: 2; column-gap: 24px; }
+.acta-check li { padding: 2px 0; break-inside: avoid; color: #646d75; }
+.acta-check li.ok { color: #1a1f23; }
+.acta-fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.acta-fotos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; }
+.acta-edit { border: 1px dashed #cdd2d7; border-radius: 6px; padding: 8px 10px; min-height: 50px; white-space: pre-wrap; outline: none; }
+.acta-firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 56px; text-align: center; font-weight: 600; }
+.acta-firmas .line { border-top: 1px solid #1a1f23; margin-bottom: 6px; }
+.acta-firmas .small { font-weight: 400; color: #646d75; }
+
+@media print {
+  @page { size: A4; margin: 14mm; }
+  body { background: #fff !important; padding: 0 !important; }
+  .topbar, .tabs, .fab, .toast, .no-print { display: none !important; }
+  main { padding: 0 !important; max-width: none !important; }
+  .acta { box-shadow: none; padding: 0; margin: 0; max-width: none; }
+  .acta-edit { border: 0; padding: 0; }
+}
