@@ -14,7 +14,11 @@ Apps web internas de **SLAVON**. Cada app tiene su propio link, pero todas compa
 
 ## Obras
 
-- **Obras** con cliente, teléfono, ubicación, tipo, fecha de inicio, encargados y notas.
+- **Ventas:** se carga la venta con fecha de entrega y saldo. 7 días antes de la entrega avisa «Cobrar saldo» (en Inicio, Ventas y Panel). Al marcar el saldo cobrado la obra pasa a **En entrega**, con responsable y fechas de instalación.
+- **Estados:** Vendida → En entrega → Terminada.
+- **Agenda de instalación:** calendario mensual con una fecha (desde–hasta) por obra; césped en verde, canchas completas en azul y entregas comprometidas sin programar en naranja.
+- **Panel** (en la compu): indicadores, tablero por etapa y tabla de obras en entrega.
+- **Obras** con cliente, teléfono, ubicación, tipo, responsable de entrega, encargados y notas.
 - **Etapas** según el tipo (se copian al crear la obra y se pueden editar en cada obra):
   - *Fútbol:* envío del césped → control de base apta → tendido → pegado del verde → corte para líneas blancas → pegado del blanco → arena → caucho → cepillado final.
   - *Pádel solo césped:* igual que fútbol, sin caucho.

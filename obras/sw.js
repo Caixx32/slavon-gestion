@@ -1,10 +1,10 @@
 'use strict';
 
 // App instalable y que abre sin señal. Al cambiar cualquier archivo, subí el número de CACHE.
-const CACHE = 'obras-v3';
+const CACHE = 'obras-v4';
 const SHELL = [
-  './', './index.html', './app.js?v=3', './etapas.js?v=3', './obras.css?v=3', './manifest.webmanifest',
-  '../shared/base.css?v=3', '../shared/config.js?v=3', '../shared/cloud.js?v=3', '../shared/ui.js?v=3', '../shared/boot.js?v=3',
+  './', './index.html', './app.js?v=4', './etapas.js?v=4', './obras.css?v=4', './manifest.webmanifest',
+  '../shared/base.css?v=4', '../shared/config.js?v=4', '../shared/cloud.js?v=4', '../shared/ui.js?v=4', '../shared/boot.js?v=4',
   '../shared/icons/logo-white.png', '../shared/icons/favicon.png', '../shared/icons/icon-192.png',
 ];
 const FIREBASE = 'https://www.gstatic.com/firebasejs/';

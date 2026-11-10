@@ -44,12 +44,13 @@
   });
 
   function buildTabs() {
+    // [ruta, ícono, nombre, sólo en la compu]
     const tabs = [['inicio', 'home', 'Inicio']];
-    if (isAdmin) tabs.push(['panel', 'grid', 'Panel']);
-    tabs.push(['obras', 'list', 'Obras']);
-    if (isAdmin) tabs.push(['postventa', 'phone', 'Post-venta']);
+    if (isAdmin) tabs.push(['panel', 'grid', 'Panel', true], ['ventas', 'tag', 'Ventas']);
+    tabs.push(['agenda', 'calendar', 'Agenda'], ['obras', 'list', 'Obras']);
+    if (isAdmin) tabs.push(['postventa', 'phone', 'Post-venta', true]);
     tabs.push(['mas', 'menu', 'Más']);
-    tabsEl.replaceChildren(...tabs.map(([id, ic, label]) => h('button', { type: 'button', 'data-tab': id, onclick: () => go(id) }, icon(ic), h('span', label))),
+    tabsEl.replaceChildren(...tabs.map(([id, ic, label, pc]) => h('button', { type: 'button', 'data-tab': id, class: pc ? 'pc-tab' : '', onclick: () => go(id) }, icon(ic), h('span', label))),
       // Sólo en la compu: accesos a las otras apps de Slavon, abajo del menú.
       h('div.side-only.side-apps', h('div.side-title', 'Otras apps'),
         h('a', { href: 'https://caixx32.github.io/flota-slavon/' }, 'Flota'),
@@ -65,11 +66,13 @@
     tabsEl.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.tab === (r === 'obra' ? 'obras' : r)));
     if (r !== 'obra') watchFotos(null);
     document.querySelectorAll('.fab').forEach((f) => f.remove());
-    document.body.classList.toggle('wide', r === 'panel');
+    document.body.classList.toggle('wide', r === 'panel' || r === 'agenda');
     if (r === 'obra') return viewObra(id);
     if (r === 'obras') return viewObras();
     if (r === 'postventa' && isAdmin) return viewPostventa();
     if (r === 'panel' && isAdmin) return viewPanel();
+    if (r === 'ventas' && isAdmin) return viewVentas();
+    if (r === 'agenda') return viewAgenda();
     if (r === 'mas') return viewMas();
     if (r === 'usuarios' && me.super) return SG.usersScreen(main, () => go('mas'));
     return viewInicio();
@@ -102,6 +105,23 @@
   const stamp = () => ({ editadoPor: me.email, editadoPorNombre: me.nombre, editadoEn: cloud.serverTime() });
   const misObras = () => obras.filter((o) => (o.encargados || []).includes(me.email));
   const uid = () => Math.random().toString(36).slice(2, 10);
+  const esVendida = (o) => o.estado === 'vendida';
+  const esCurso = (o) => !o.estado || o.estado === 'en_curso';
+  const esTerminada = (o) => o.estado === 'terminada';
+  const ESTADOS = { vendida: 'Vendida', en_curso: 'En entrega', terminada: 'Terminada' };
+  // Cuántos días antes de la fecha de entrega avisa que hay que cobrar el saldo.
+  const AVISO_SALDO_DIAS = 7;
+  const fmtPlata = (v) => {
+    const n = Number(String(v || '').replace(/[^\d,]/g, '').replace(',', '.'));
+    return n ? '$ ' + n.toLocaleString('es-AR', { maximumFractionDigits: 0 }) : '';
+  };
+  // Ventas con la entrega cerca (o pasada) y el saldo sin cobrar.
+  const cobrosPendientes = () => obras
+    .filter((o) => esVendida(o) && o.fechaEntrega && UI.daysUntil(o.fechaEntrega) <= AVISO_SALDO_DIAS)
+    .sort((a, b) => a.fechaEntrega.localeCompare(b.fechaEntrega));
+  const proximasInstalaciones = (dias) => obras
+    .filter((o) => !esTerminada(o) && o.instInicio && UI.daysUntil(o.instInicio) >= 0 && UI.daysUntil(o.instInicio) <= dias)
+    .sort((a, b) => a.instInicio.localeCompare(b.instInicio));
 
   // Llamados de post-venta no hechos de todas las obras terminadas, ordenados por fecha.
   function llamadosPendientes() {
@@ -120,19 +140,24 @@
   /* ---------- Inicio ---------- */
 
   function viewInicio() {
-    const enCurso = obras.filter((o) => o.estado !== 'terminada');
-    const mias = isAdmin ? enCurso : misObras().filter((o) => o.estado !== 'terminada');
+    const enCurso = obras.filter(esCurso);
+    const mias = isAdmin ? enCurso : misObras().filter(esCurso);
+    const cobros = isAdmin ? cobrosPendientes() : [];
+    const inst = proximasInstalaciones(7);
     const mostrar = (isAdmin || mias.length ? mias : enCurso).sort((a, b) => (a.inicio || '').localeCompare(b.inicio || ''));
     const pend = isAdmin ? llamadosPendientes().filter((x) => UI.daysUntil(x.p.fecha) <= 7) : [];
 
     setMain(
       h('h1', `Hola, ${me.nombre.split(' ')[0]}`),
       h('div.kpis',
-        kpi(enCurso.length, 'En curso'),
-        kpi(obras.filter((o) => o.estado === 'terminada').length, 'Terminadas'),
+        isAdmin ? kpi(obras.filter(esVendida).length, 'Vendidas', 'ventas') : null,
+        kpi(enCurso.length, 'En entrega', 'obras'),
+        isAdmin ? h('div.kpi.tap', { class: cobros.length ? 'bad' : '', onclick: () => go('ventas') }, h('b', cobros.length), h('span', 'Saldos a cobrar')) : null,
         isAdmin ? kpi(llamadosPendientes().filter((x) => UI.daysUntil(x.p.fecha) <= 0).length, 'Llamados para hoy', 'postventa') : null),
+      cobros.length ? [h('h2', 'Cobrar saldo'), h('div.list', cobros.map(cobroItem))] : null,
+      inst.length ? [h('h2', 'Instalaciones de los próximos 7 días'), h('div.list', inst.map(instItem))] : null,
       pend.length ? [h('h2', 'Llamados de post-venta'), h('div.list', pend.map((x) => llamadoItem(x, false)))] : null,
-      h('h2', isAdmin || !mias.length ? 'Obras en curso' : 'Mis obras'),
+      h('h2', isAdmin || !mias.length ? 'Obras en entrega' : 'Mis obras'),
       mostrar.length ? mostrar.map(obraCard) : h('div.card.empty', isAdmin ? 'No hay obras en curso. Tocá + para cargar una.' : 'No hay obras en curso.'),
     );
     if (isAdmin) addFab();
@@ -143,6 +168,15 @@
   }
 
   function obraCard(o) {
+    if (esVendida(o)) {
+      const d = o.fechaEntrega ? UI.daysUntil(o.fechaEntrega) : null;
+      return h('div.card.tap.obra-card', { onclick: () => go('obra/' + o._id) },
+        h('div.row',
+          h('div.grow', h('h3.ellipsis', o.nombre), h('div.small.muted.ellipsis', [tipoNombre(o.tipo), o.cliente].filter(Boolean).join(' · '))),
+          h('span.badge.blue', 'Vendida')),
+        h('div.small', { style: { marginTop: '8px' } },
+          o.fechaEntrega ? [h('span.muted', 'Entrega: '), UI.fmtDay(o.fechaEntrega), ' ', d <= AVISO_SALDO_DIAS ? h('span.badge.red', 'Cobrar saldo') : h('span.muted', '(' + UI.relDays(o.fechaEntrega) + ')')] : h('span.muted', 'Sin fecha de entrega')));
+    }
     const pct = progreso(o);
     const act = etapaActual(o);
     return h('div.card.tap.obra-card', { onclick: () => go('obra/' + o._id) },
@@ -169,6 +203,7 @@
     ['term', 'Terminación', /arena|caucho|cepillado/i],
   ];
   function faseDe(o) {
+    if (esVendida(o)) return 'venta';
     if (o.estado === 'terminada') return 'fin';
     const act = etapaActual(o);
     if (!act) return 'term';
@@ -183,7 +218,8 @@
   const SIN_AVANCE_DIAS = 7;
 
   function viewPanel() {
-    const enCurso = obras.filter((o) => o.estado !== 'terminada');
+    const enCurso = obras.filter(esCurso);
+    const cobros = cobrosPendientes();
     const mes = UI.today().slice(0, 7);
     const terminadasMes = obras.filter((o) => o.estado === 'terminada' && (o.fin || '').startsWith(mes));
     const quietas = enCurso.filter((o) => -UI.daysUntil(ultimoAvance(o)) > SIN_AVANCE_DIAS);
@@ -192,7 +228,7 @@
     const promedio = enCurso.length ? Math.round(enCurso.reduce((a, o) => a + progreso(o), 0) / enCurso.length) : 0;
 
     // Tablero por fase
-    const cols = [...FASES.map(([k, n]) => [k, n]), ['fin', 'Terminadas']];
+    const cols = [['venta', 'Vendidas'], ...FASES.map(([k, n]) => [k, n]), ['fin', 'Terminadas']];
     const board = h('div.board', cols.map(([k, n]) => {
       const items = obras.filter((o) => faseDe(o) === k)
         .filter((o) => k !== 'fin' || -UI.daysUntil(o.fin || UI.today()) <= 60)
@@ -200,9 +236,17 @@
       return h('div.board-col',
         h('div.board-head', h('b', n), h('span.badge', items.length)),
         items.length ? items.map((o) => {
+          if (esVendida(o)) {
+            return h('div.board-card', { onclick: () => go('obra/' + o._id) },
+              h('div.ellipsis', { style: { fontWeight: 700 } }, o.nombre),
+              h('div.small.muted.ellipsis', tipoNombre(o.tipo)),
+              h('div.row.small', { style: { marginTop: '8px' } },
+                h('span.grow', o.fechaEntrega ? 'Entrega ' + UI.fmtDay(o.fechaEntrega) : 'Sin fecha'),
+                cobros.includes(o) ? h('span.badge.red', 'Cobrar') : null));
+          }
           const pct = progreso(o);
           const act = etapaActual(o);
-          const quieta = o.estado !== 'terminada' && -UI.daysUntil(ultimoAvance(o)) > SIN_AVANCE_DIAS;
+          const quieta = esCurso(o) && -UI.daysUntil(ultimoAvance(o)) > SIN_AVANCE_DIAS;
           return h('div.board-card', { onclick: () => go('obra/' + o._id) },
             h('div.ellipsis', { style: { fontWeight: 700 } }, o.nombre),
             h('div.small.muted.ellipsis', tipoNombre(o.tipo)),
@@ -235,7 +279,9 @@
     setMain(
       h('div.row', h('h1.grow', 'Panel de obras'), h('button.btn.primary.small', { type: 'button', onclick: () => editObra(null) }, icon('plus'), 'Nueva obra')),
       h('div.kpis.kpis-wide',
-        kpi(enCurso.length, 'Obras en curso', 'obras'),
+        kpi(obras.filter(esVendida).length, 'Vendidas', 'ventas'),
+        h('div.kpi.tap', { class: cobros.length ? 'bad' : '', onclick: () => go('ventas') }, h('b', cobros.length), h('span', 'Saldos a cobrar')),
+        kpi(enCurso.length, 'En entrega', 'obras'),
         kpi(promedio + '%', 'Avance promedio'),
         h('div.kpi', { class: quietas.length ? 'warn' : '' }, h('b', quietas.length), h('span', `Sin avance hace +${SIN_AVANCE_DIAS} días`)),
         kpi(terminadasMes.length, 'Terminadas este mes'),
@@ -243,7 +289,7 @@
         kpi(semana.length, 'Llamados esta semana', 'postventa')),
       h('h2', 'Tablero por etapa'),
       board,
-      h('h2', 'Obras en curso'),
+      h('h2', 'Obras en entrega'),
       table,
       quietas.length ? [h('h2', `Sin avance hace más de ${SIN_AVANCE_DIAS} días`), h('div.list', quietas.map((o) => h('div.item', { onclick: () => go('obra/' + o._id) },
         h('span.dot.late', '!'), h('div.grow', h('div', { style: { fontWeight: 600 } }, o.nombre), h('div.small.muted', `Último avance ${UI.fmtDay(ultimoAvance(o))} · ${etapaActual(o) ? etapaActual(o).nombre : ''}`)), icon('chev'))))] : null);
@@ -252,7 +298,7 @@
   /* ---------- Lista de obras ---------- */
 
   function viewObras() {
-    const seg = h('div.seg', [['en_curso', 'En curso'], ['terminada', 'Terminadas'], ['todas', 'Todas']].map(([v, t]) =>
+    const seg = h('div.seg', [['vendida', 'Vendidas'], ['en_curso', 'En entrega'], ['terminada', 'Terminadas'], ['todas', 'Todas']].map(([v, t]) =>
       h('button', { type: 'button', class: ui.obrasFiltro === v ? 'on' : '', onclick: () => { ui.obrasFiltro = v; render(); } }, t)));
     const search = h('input.search', { type: 'search', placeholder: 'Buscar obra, cliente o lugar', value: ui.busqueda });
     const listEl = h('div');
@@ -260,7 +306,7 @@
     function fill() {
       const q = ui.busqueda.trim().toLowerCase();
       const items = obras
-        .filter((o) => ui.obrasFiltro === 'todas' || (ui.obrasFiltro === 'terminada' ? o.estado === 'terminada' : o.estado !== 'terminada'))
+        .filter((o) => ui.obrasFiltro === 'todas' || (o.estado || 'en_curso') === ui.obrasFiltro)
         .filter((o) => !q || [o.nombre, o.cliente, o.ubicacion].join(' ').toLowerCase().includes(q))
         .sort((a, b) => (b.inicio || '').localeCompare(a.inicio || ''));
       listEl.replaceChildren(...(items.length ? items.map(obraCard) : [h('div.card.empty', 'No hay obras.')]));
@@ -289,7 +335,9 @@
       h('div.row', { style: { alignItems: 'flex-start' } },
         h('div.grow', h('h1', { style: { marginBottom: '4px' } }, o.nombre), h('div.muted', tipoNombre(o.tipo))),
         isAdmin ? h('button.btn.small', { type: 'button', onclick: () => editObra(o) }, icon('edit'), 'Editar') : null),
-      h('div.card', { style: { marginTop: '14px' } },
+      h('div.row', { style: { margin: '6px 0 0' } }, h('span.badge', { class: esVendida(o) ? 'blue' : terminada ? 'ok' : 'warn' }, ESTADOS[o.estado || 'en_curso'])),
+      ventaCard(o),
+      esVendida(o) ? null : h('div.card', { style: { marginTop: '14px' } },
         h('div.row', h('b.grow', terminada ? 'Obra terminada' : `${hechas} de ${(o.etapas || []).length} etapas`), terminada ? h('span.badge.ok', 'Terminada ' + UI.fmtDay(o.fin)) : h('b.pct', pct + '%')),
         h('div', { style: { marginTop: '10px' } }, progressBar(terminada ? 100 : pct))),
       h('div.card.info',
@@ -298,7 +346,6 @@
           h('a.btn.small', { href: 'tel:' + o.telefono.replace(/\s/g, '') }, icon('phone')),
           wa ? h('a.btn.small', { href: wa, target: '_blank', rel: 'noopener' }, icon('whatsapp')) : null)) : null,
         o.ubicacion ? infoRow('Ubicación', h('a', { href: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(o.ubicacion), target: '_blank', rel: 'noopener' }, o.ubicacion)) : null,
-        infoRow('Inicio', UI.fmtDay(o.inicio)),
         infoRow('Encargados', (o.encargados || []).map(userName).join(', ') || '—'),
         o.notas ? infoRow('Notas', o.notas) : null,
         o.editadoPorNombre ? h('div.small.muted', { style: { marginTop: '8px' } }, 'Último cambio: ' + [o.editadoPorNombre, UI.fmtStamp(o.editadoEn)].filter(Boolean).join(' · ')) : null),
@@ -316,11 +363,171 @@
 
       terminada ? [h('h2', 'Post-venta'), h('div.list', (o.postventa || []).map((p) => llamadoItem({ obra: o, p }, true)))] : null,
 
-      isAdmin ? h('div', { style: { margin: '24px 0 8px' } },
+      isAdmin && esVendida(o) ? h('div', { style: { margin: '24px 0 8px' } },
+        h('button.btn.primary.block', { type: 'button', onclick: () => cobrarSaldo(o) }, icon('check'), 'Saldo cobrado: pasar a entrega')) : null,
+      isAdmin && !esVendida(o) ? h('div', { style: { margin: '24px 0 8px' } },
         terminada
           ? h('button.btn.block', { type: 'button', onclick: () => reabrir(o) }, 'Reabrir obra')
           : h('button.btn.dark.block', { type: 'button', onclick: () => terminar(o) }, icon('check'), 'Marcar obra como terminada')) : null,
     );
+  }
+
+  /* ---------- Venta, cobro del saldo y agenda de instalación ---------- */
+
+  function ventaCard(o) {
+    const d = o.fechaEntrega ? UI.daysUntil(o.fechaEntrega) : null;
+    const alerta = esVendida(o) && d != null && d <= AVISO_SALDO_DIAS;
+    const instTxt = o.instInicio ? UI.fmtDay(o.instInicio) + (o.instFin && o.instFin !== o.instInicio ? ' al ' + UI.fmtDay(o.instFin) : '') : 'Sin programar';
+    return h('div.card.info', { style: { marginTop: '14px' } },
+      alerta ? h('div.form-error', `Entrega ${UI.relDays(o.fechaEntrega)}: hay que cobrar el saldo.`) : null,
+      infoRow('Venta', [UI.fmtDay(o.fechaVenta) || '—', o.creadoPorNombre ? h('span.muted', ' · cargó ' + o.creadoPorNombre) : null]),
+      infoRow('Entrega', o.fechaEntrega ? [UI.fmtDay(o.fechaEntrega), !esTerminada(o) ? h('span.muted', ' (' + UI.relDays(o.fechaEntrega) + ')') : null] : '—'),
+      isAdmin ? infoRow('Saldo', o.saldoCobrado
+        ? h('span', h('span.badge.ok', 'Cobrado'), ' ', UI.fmtDay(o.saldoCobradoFecha), o.saldoCobradoPorNombre ? h('span.muted', ' · ' + o.saldoCobradoPorNombre) : null)
+        : h('span', fmtPlata(o.saldo) || 'Sin monto cargado', ' ', esVendida(o) ? h('span.badge.red', 'Pendiente') : null)) : null,
+      infoRow('Instalación', h('span.row.wrap', { style: { gap: '8px' } }, instTxt,
+        isAdmin && !esTerminada(o) ? h('button.btn.small', { type: 'button', onclick: () => programar(o) }, icon('calendar'), o.instInicio ? 'Cambiar' : 'Programar') : null)),
+      infoRow('Responsable de entrega', o.responsable ? userName(o.responsable) : '—'));
+  }
+
+  function responsableField(value) {
+    const posibles = users.filter((u) => u.activo !== false && u.apps && u.apps.obras);
+    return UI.field({
+      label: 'Responsable de entrega', name: 'responsable', type: 'select', value: value || '',
+      options: [['', 'Sin asignar'], ...posibles.map((u) => [u._id, u.nombre || u._id])],
+    });
+  }
+
+  function cobrarSaldo(o) {
+    const body = h('div',
+      h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
+      UI.field({ label: 'Fecha en que se cobró', name: 'fecha', type: 'date', value: UI.today() }),
+      responsableField(o.responsable),
+      h('div.row', { style: { gap: '10px' } },
+        h('div.grow', UI.field({ label: 'Instalación desde', name: 'instInicio', type: 'date', value: o.instInicio || '' })),
+        h('div.grow', UI.field({ label: 'Hasta (estimado)', name: 'instFin', type: 'date', value: o.instFin || '' }))),
+      h('p.small.muted', 'La obra pasa a «En entrega» y aparece en la agenda de instalación.'));
+    UI.sheet({
+      title: 'Saldo cobrado',
+      body: [body],
+      actions: [{ label: 'Cancelar' }, {
+        label: 'Pasar a entrega', kind: 'primary', onClick: () => {
+          const v = UI.values(body);
+          if (v.instFin && v.instInicio && v.instFin < v.instInicio) throw new Error('La fecha «hasta» no puede ser antes de «desde».');
+          cloud.patch('obras', o._id, {
+            estado: 'en_curso', saldoCobrado: true, saldoCobradoFecha: v.fecha || UI.today(),
+            saldoCobradoPor: me.email, saldoCobradoPorNombre: me.nombre,
+            responsable: v.responsable, instInicio: v.instInicio, instFin: v.instFin || v.instInicio,
+            inicio: v.instInicio || o.inicio || UI.today(), ...stamp(),
+          });
+          UI.toast('Listo: la obra pasó a entrega');
+        },
+      }],
+    });
+  }
+
+  function programar(o) {
+    const body = h('div',
+      h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
+      h('div.row', { style: { gap: '10px' } },
+        h('div.grow', UI.field({ label: 'Instalación desde', name: 'instInicio', type: 'date', value: o.instInicio || o.fechaEntrega || UI.today() })),
+        h('div.grow', UI.field({ label: 'Hasta (estimado)', name: 'instFin', type: 'date', value: o.instFin || '' }))),
+      responsableField(o.responsable));
+    UI.sheet({
+      title: 'Agenda de instalación',
+      body: [body],
+      actions: [
+        o.instInicio ? { label: 'Quitar fecha', kind: 'danger', onClick: () => { cloud.patch('obras', o._id, { instInicio: '', instFin: '', ...stamp() }); } } : { label: 'Cancelar' },
+        {
+          label: 'Guardar', kind: 'primary', onClick: () => {
+            const v = UI.values(body);
+            if (!v.instInicio) throw new Error('Poné la fecha de inicio.');
+            if (v.instFin && v.instFin < v.instInicio) throw new Error('La fecha «hasta» no puede ser antes de «desde».');
+            const data = { instInicio: v.instInicio, instFin: v.instFin || v.instInicio, responsable: v.responsable, ...stamp() };
+            if (esCurso(o) && !o.inicio) data.inicio = v.instInicio;
+            cloud.patch('obras', o._id, data);
+            UI.toast('Instalación agendada');
+          },
+        },
+      ],
+    });
+  }
+
+  function cobroItem(o) {
+    const d = UI.daysUntil(o.fechaEntrega);
+    return h('div.item', { onclick: () => go('obra/' + o._id) },
+      h('span.dot.late', '$'),
+      h('div.grow',
+        h('div.ellipsis', { style: { fontWeight: 600 } }, o.nombre),
+        h('div.small.muted.ellipsis', [`Entrega ${UI.fmtDay(o.fechaEntrega)}`, fmtPlata(o.saldo), o.cliente].filter(Boolean).join(' · '))),
+      h('span.badge', { class: d < 0 ? 'red' : 'warn' }, d < 0 ? 'Entrega vencida' : UI.relDays(o.fechaEntrega)));
+  }
+
+  function instItem(o) {
+    return h('div.item', { onclick: () => go('obra/' + o._id) },
+      h('span.dot', { class: 'doing' }, icon('calendar')),
+      h('div.grow',
+        h('div.ellipsis', { style: { fontWeight: 600 } }, o.nombre),
+        h('div.small.muted.ellipsis', [tipoNombre(o.tipo), o.ubicacion, o.responsable ? userName(o.responsable) : ''].filter(Boolean).join(' · '))),
+      h('span.badge.blue', UI.fmtDay(o.instInicio) + (o.instFin && o.instFin !== o.instInicio ? ' – ' + UI.fmtDay(o.instFin) : '')));
+  }
+
+  /* ---------- Ventas ---------- */
+
+  function viewVentas() {
+    const vendidas = obras.filter(esVendida).sort((a, b) => (a.fechaEntrega || '9').localeCompare(b.fechaEntrega || '9'));
+    const cobros = cobrosPendientes();
+    const resto = vendidas.filter((o) => !cobros.includes(o));
+    setMain(
+      h('div.row', h('h1.grow', 'Ventas'), h('button.btn.primary.small', { type: 'button', onclick: () => editObra(null) }, icon('plus'), 'Nueva venta')),
+      h('p.muted.small', `Se carga la venta con su fecha de entrega. ${AVISO_SALDO_DIAS} días antes de la entrega avisa que hay que cobrar el saldo; cuando se cobra, la obra pasa a entrega.`),
+      h('h2', 'Cobrar saldo'),
+      cobros.length ? h('div.list', cobros.map(cobroItem)) : h('div.card.empty.small', 'No hay saldos para cobrar por ahora.'),
+      h('h2', 'Vendidas, con entrega más adelante'),
+      resto.length ? resto.map(obraCard) : h('div.card.empty.small', 'No hay otras ventas pendientes.'));
+  }
+
+  /* ---------- Agenda de instalación ---------- */
+
+  function viewAgenda() {
+    if (!ui.agendaMes) ui.agendaMes = UI.today().slice(0, 7);
+    const [y, m] = ui.agendaMes.split('-').map(Number);
+    const first = new Date(y, m - 1, 1);
+    const days = new Date(y, m, 0).getDate();
+    const offset = (first.getDay() + 6) % 7; // lunes primero
+    const iso = (d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const mesNombre = first.toLocaleDateString('es-AR', { month: 'long' }).replace(/^./, (c) => c.toUpperCase()) + ' ' + y;
+    const conFecha = obras.filter((o) => !esTerminada(o) && o.instInicio);
+    const entregas = obras.filter((o) => esVendida(o) && o.fechaEntrega && !o.instInicio);
+    const moveMonth = (n) => { const d = new Date(y, m - 1 + n, 1); ui.agendaMes = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; render(); };
+
+    const cells = [];
+    for (let i = 0; i < offset; i++) cells.push(h('div.cal-day.out'));
+    for (let d = 1; d <= days; d++) {
+      const day = iso(d);
+      const inst = conFecha.filter((o) => day >= o.instInicio && day <= (o.instFin || o.instInicio));
+      const ent = entregas.filter((o) => o.fechaEntrega === day);
+      cells.push(h('div.cal-day', { class: day === UI.today() ? 'today' : '' },
+        h('div.cal-num', d),
+        inst.map((o) => h('button.cal-chip', { type: 'button', class: o.tipo === 'padel_completa' ? 'full' : '', title: o.nombre, onclick: () => go('obra/' + o._id) }, o.nombre)),
+        ent.map((o) => h('button.cal-chip.ent', { type: 'button', title: 'Entrega comprometida (sin instalación programada): ' + o.nombre, onclick: () => go('obra/' + o._id) }, '⏳ ' + o.nombre))));
+    }
+
+    const proximas = conFecha.filter((o) => (o.instFin || o.instInicio) >= UI.today()).sort((a, b) => a.instInicio.localeCompare(b.instInicio));
+    const sinFecha = obras.filter((o) => esCurso(o) && !o.instInicio);
+
+    setMain(
+      h('h1', 'Agenda de instalación'),
+      h('div.row.cal-nav',
+        h('button.btn.small', { type: 'button', onclick: () => moveMonth(-1) }, icon('back')),
+        h('b.grow', { style: { textAlign: 'center', fontSize: '17px' } }, mesNombre),
+        h('button.btn.small', { type: 'button', onclick: () => moveMonth(1) }, icon('chev'))),
+      h('div.cal-legend.small.muted', h('span.cal-chip', 'Césped'), h('span.cal-chip.full', 'Cancha completa'), h('span.cal-chip.ent', '⏳ Entrega comprometida sin programar')),
+      h('div.cal', ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d) => h('div.cal-head', d)), cells),
+      h('h2', 'Próximas instalaciones'),
+      proximas.length ? h('div.list', proximas.map(instItem)) : h('div.card.empty.small', 'No hay instalaciones programadas.'),
+      isAdmin && sinFecha.length ? [h('h2', 'En entrega sin fecha de instalación'), h('div.list', sinFecha.map((o) => h('div.item', { onclick: () => programar(o) },
+        h('span.dot', icon('calendar')), h('div.grow', h('div', { style: { fontWeight: 600 } }, o.nombre), h('div.small.muted', tipoNombre(o.tipo))), h('span.badge', 'Programar'))))] : null);
   }
 
   function backBtn() {
@@ -618,27 +825,43 @@
       UI.field({ label: 'Cliente', name: 'cliente', value: o ? o.cliente : '', placeholder: 'Nombre y apellido o club' }),
       UI.field({ label: 'Teléfono del cliente', name: 'telefono', type: 'tel', value: o ? o.telefono : '', placeholder: 'Ej: 11 5555 5555' }),
       UI.field({ label: 'Ubicación', name: 'ubicacion', value: o ? o.ubicacion : '', placeholder: 'Dirección o localidad' }),
-      UI.field({ label: 'Fecha de inicio', name: 'inicio', type: 'date', value: o ? o.inicio : UI.today() }),
+      h('h3', { style: { margin: '18px 0 10px' } }, 'Venta'),
+      isNew ? UI.field({ label: 'Estado', name: 'estado', type: 'select', value: 'vendida', options: [['vendida', 'Vendida (falta cobrar el saldo)'], ['en_curso', 'Saldo cobrado, ya en entrega']] }) : null,
+      h('div.row', { style: { gap: '10px' } },
+        h('div.grow', UI.field({ label: 'Fecha de venta', name: 'fechaVenta', type: 'date', value: o ? o.fechaVenta : UI.today() })),
+        h('div.grow', UI.field({ label: 'Fecha de entrega', name: 'fechaEntrega', type: 'date', value: o ? o.fechaEntrega : '' }))),
+      UI.field({ label: 'Saldo a cobrar antes de la entrega ($)', name: 'saldo', inputMode: 'numeric', value: o ? o.saldo : '', placeholder: 'Ej: 1.500.000' }),
+      h('h3', { style: { margin: '18px 0 10px' } }, 'Entrega'),
+      responsableField(o ? o.responsable : ''),
+      h('div.row', { style: { gap: '10px' } },
+        h('div.grow', UI.field({ label: 'Instalación desde', name: 'instInicio', type: 'date', value: o ? o.instInicio : '' })),
+        h('div.grow', UI.field({ label: 'Hasta (estimado)', name: 'instFin', type: 'date', value: o ? o.instFin : '' }))),
       encBox,
       UI.field({ label: 'Notas', name: 'notas', type: 'textarea', value: o ? o.notas : '' }));
     const actions = [{ label: 'Cancelar' }, {
       label: isNew ? 'Crear obra' : 'Guardar', kind: 'primary', onClick: () => {
         const v = UI.values(body);
         if (!v.nombre) throw new Error('Poné el nombre de la obra.');
+        if (v.instFin && v.instInicio && v.instFin < v.instInicio) throw new Error('La instalación «hasta» no puede ser antes de «desde».');
         const data = {
           nombre: v.nombre, tipo: v.tipo, cliente: v.cliente, telefono: v.telefono, ubicacion: v.ubicacion,
-          inicio: v.inicio || UI.today(), encargados: [...elegidos], notas: v.notas, ...stamp(),
+          fechaVenta: v.fechaVenta, fechaEntrega: v.fechaEntrega, saldo: v.saldo, responsable: v.responsable,
+          instInicio: v.instInicio, instFin: v.instFin || v.instInicio,
+          encargados: [...elegidos], notas: v.notas, ...stamp(),
         };
         if (isNew) {
           const id = cloud.newId();
           cloud.put('obras', id, {
-            ...data, estado: 'en_curso', fin: '', postventa: [],
+            ...data, estado: v.estado || 'vendida', fin: '', postventa: [],
+            inicio: v.instInicio || (v.estado === 'en_curso' ? UI.today() : ''),
+            saldoCobrado: v.estado === 'en_curso',
+            creadoPorNombre: me.nombre,
             etapas: (TIPOS[v.tipo] || TIPOS.otro).etapas.map((nombre) => ({ id: uid(), nombre, estado: 'pendiente', nota: '' })),
             checklist: checklistDefault(v.tipo),
             creadoPor: me.email, creadoEn: cloud.serverTime(),
           });
           go('obra/' + id);
-          UI.toast('Obra creada');
+          UI.toast(v.estado === 'en_curso' ? 'Obra creada' : 'Venta cargada');
         } else {
           cloud.patch('obras', o._id, data);
           UI.toast('Guardado');
@@ -656,7 +879,7 @@
         },
       });
     }
-    UI.sheet({ title: isNew ? 'Nueva obra' : 'Editar obra', body: [body], actions });
+    UI.sheet({ title: isNew ? 'Nueva venta / obra' : 'Editar obra', body: [body], actions });
   }
 
   /* ---------- Más ---------- */
@@ -667,6 +890,8 @@
       h('h1', 'Más'),
       h('div.card', h('b', me.nombre), h('div.small.muted', `${me.email} · ${roleName}`)),
       h('div.list',
+        isAdmin ? h('div.item.mobile-only', { onclick: () => go('postventa') }, icon('phone'), h('div.grow', 'Post-venta'), icon('chev')) : null,
+        isAdmin ? h('div.item.mobile-only', { onclick: () => go('panel') }, icon('grid'), h('div.grow', 'Panel (mejor en la compu)'), icon('chev')) : null,
         me.super ? h('div.item', { onclick: () => go('usuarios') }, icon('users'), h('div.grow', 'Usuarios y permisos'), icon('chev')) : null,
         h('a.item', { href: '../', style: { color: 'inherit', textDecoration: 'none' } }, icon('home'), h('div.grow', 'Otras apps de Slavon'), icon('chev')),
         h('div.item', { onclick: () => cloud.signOut() }, icon('logout'), h('div.grow', cloud.demo ? 'Salir de la demo' : 'Cerrar sesión'))),
@@ -687,10 +912,13 @@
       const pv = (fin, hechos) => window.OBRAS_POSTVENTA.map((p, i) => ({ id: p.id, label: p.label, fecha: UI.addMonths(fin, p.meses), hecho: i < hechos, nota: i < hechos ? 'Todo bien, contentos con la cancha.' : '', porNombre: i < hechos ? 'Juan' : '', hechoFecha: i < hechos ? UI.addMonths(fin, p.meses) : '' }));
       put('users', 'encargado@demo.slavon', { nombre: 'Encargado (demo)', apps: { obras: 'encargado' }, activo: true, super: false });
       const base = { encargados: ['encargado@demo.slavon'], notas: '', editadoPorNombre: 'Juan' };
-      put('obras', 'demo1', { ...base, nombre: 'Club Huracán – Cancha 1 (ejemplo)', tipo: 'futbol', cliente: 'Contacto de ejemplo', telefono: '11 5555 0001', ubicacion: 'Parque Patricios, CABA', inicio: UI.addDays(t, -12), estado: 'en_curso', etapas: mk('futbol', 4, true), checklist: ch('futbol'), postventa: [] });
-      put('obras', 'demo2', { ...base, nombre: 'La Finca – Pádel 2 y 3 (ejemplo)', tipo: 'padel_completa', cliente: 'Contacto de ejemplo', telefono: '11 5555 0002', ubicacion: 'Pilar, Buenos Aires', inicio: UI.addDays(t, -20), estado: 'en_curso', etapas: mk('padel_completa', 6, true), checklist: ch('padel_completa'), postventa: [] });
+      put('obras', 'demo1', { ...base, nombre: 'Club Huracán – Cancha 1 (ejemplo)', tipo: 'futbol', cliente: 'Contacto de ejemplo', telefono: '11 5555 0001', ubicacion: 'Parque Patricios, CABA', inicio: UI.addDays(t, -12), instInicio: UI.addDays(t, -12), instFin: UI.addDays(t, 3), fechaVenta: UI.addDays(t, -40), fechaEntrega: UI.addDays(t, -12), saldoCobrado: true, saldoCobradoFecha: UI.addDays(t, -14), saldoCobradoPorNombre: 'Delfina', creadoPorNombre: 'Delfina', responsable: 'encargado@demo.slavon', estado: 'en_curso', etapas: mk('futbol', 4, true), checklist: ch('futbol'), postventa: [] });
+      put('obras', 'demo2', { ...base, nombre: 'La Finca – Pádel 2 y 3 (ejemplo)', tipo: 'padel_completa', cliente: 'Contacto de ejemplo', telefono: '11 5555 0002', ubicacion: 'Pilar, Buenos Aires', inicio: UI.addDays(t, -20), instInicio: UI.addDays(t, -20), instFin: UI.addDays(t, 6), fechaVenta: UI.addDays(t, -60), fechaEntrega: UI.addDays(t, -20), saldoCobrado: true, saldoCobradoFecha: UI.addDays(t, -22), saldoCobradoPorNombre: 'Delfina', creadoPorNombre: 'Delfina', responsable: 'encargado@demo.slavon', estado: 'en_curso', etapas: mk('padel_completa', 6, true), checklist: ch('padel_completa'), postventa: [] });
       const et5 = mk('padel_completa', 3, false).map((e) => (e.fecha ? { ...e, fecha: UI.addDays(e.fecha, -10) } : e));
       put('obras', 'demo5', { ...base, nombre: 'Club Norte – Pádel 1 (ejemplo)', tipo: 'padel_completa', cliente: 'Contacto de ejemplo', telefono: '11 5555 0005', ubicacion: 'San Isidro, Buenos Aires', inicio: UI.addDays(t, -30), estado: 'en_curso', etapas: et5, checklist: ch('padel_completa'), postventa: [] });
+      const venta = { ...base, estado: 'vendida', fin: '', postventa: [], creadoPorNombre: 'Delfina', saldoCobrado: false, cliente: 'Contacto de ejemplo' };
+      put('obras', 'demo6', { ...venta, nombre: 'Club Los Robles – Pádel 1 y 2 (ejemplo)', tipo: 'padel_cesped', telefono: '11 5555 0006', ubicacion: 'Tigre, Buenos Aires', fechaVenta: UI.addDays(t, -25), fechaEntrega: UI.addDays(t, 4), saldo: '2400000', etapas: mk('padel_cesped', 0), checklist: ch('padel_cesped') });
+      put('obras', 'demo7', { ...venta, nombre: 'Escuela San Martín – F7 (ejemplo)', tipo: 'futbol', telefono: '11 5555 0007', ubicacion: 'Lanús, Buenos Aires', fechaVenta: UI.addDays(t, -6), fechaEntrega: UI.addDays(t, 24), saldo: '5100000', etapas: mk('futbol', 0), checklist: ch('futbol') });
       const fin3 = UI.addMonths(UI.addDays(t, 3), -1);
       put('obras', 'demo3', { ...base, nombre: 'Tercer Tiempo – F5 (ejemplo)', tipo: 'futbol', cliente: 'Contacto de ejemplo', telefono: '11 5555 0003', ubicacion: 'Morón, Buenos Aires', inicio: UI.addDays(fin3, -15), estado: 'terminada', fin: fin3, etapas: mk('futbol', 9), checklist: ch('futbol', true), postventa: pv(fin3, 0) });
       const fin4 = UI.addMonths(UI.addDays(t, -17), -6);

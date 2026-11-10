@@ -43,7 +43,7 @@ body.wide main { max-width: 1320px; }
 .kpi.warn b { color: var(--warn); }
 .kpi.bad b { color: var(--red); }
 
-.board { display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 6px; }
+.board { display: grid; grid-template-columns: repeat(6, minmax(200px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 6px; }
 .board-col { background: var(--card-2); border-radius: var(--radius); padding: 10px; min-height: 120px; border: 1px solid var(--line); }
 .board-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; }
 .board-card { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); padding: 10px 12px; margin-bottom: 8px; cursor: pointer; font-size: 14px; }
@@ -55,3 +55,26 @@ body.wide main { max-width: 1320px; }
 .tabla td { padding: 11px 14px; border-top: 1px solid var(--line); vertical-align: middle; }
 .tabla tbody tr { cursor: pointer; }
 .tabla tbody tr:hover { background: var(--card-2); }
+
+/* ---------- Agenda ---------- */
+.cal-nav { margin-bottom: 10px; }
+.cal-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.cal-legend .cal-chip { cursor: default; width: auto; }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-head { font-size: 12px; font-weight: 700; color: var(--muted); text-align: center; padding: 4px 0; text-transform: uppercase; }
+.cal-day { background: var(--card); border-radius: 10px; min-height: 92px; padding: 5px; box-shadow: var(--shadow); overflow: hidden; }
+.cal-day.out { background: transparent; box-shadow: none; }
+.cal-day.today { outline: 2px solid var(--red); }
+.cal-num { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 3px; }
+.cal-chip {
+  display: block; width: 100%; border: 0; text-align: left; cursor: pointer; margin-bottom: 3px;
+  font-size: 11px; font-weight: 600; padding: 3px 6px; border-radius: 6px;
+  background: var(--ok-soft); color: var(--ok); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cal-chip.full { background: var(--blue-soft); color: var(--blue); }
+.cal-chip.ent { background: var(--warn-soft); color: var(--warn); }
+@media (max-width: 640px) {
+  .cal-day { min-height: 54px; padding: 3px; }
+  .cal-chip { font-size: 0; height: 6px; padding: 0; border-radius: 3px; }
+  .cal-legend .cal-chip { font-size: 11px; height: auto; padding: 3px 6px; }
+}
