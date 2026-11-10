@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sistema Slavon</title>
+  <meta name="theme-color" content="#22282c">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="shared/icons/favicon.png" type="image/png">
+  <link rel="stylesheet" href="shared/base.css?v=1">
+  <style>
+    body { padding-bottom: 24px; }
+    .apps { display: grid; gap: 12px; }
+    .app-link { display: flex; align-items: center; gap: 14px; text-decoration: none; color: inherit; }
+    .app-link b { font-size: 17px; }
+    .app-link.off { opacity: .55; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <img class="topbar-logo" src="shared/icons/logo-white.png" alt="SLAVON" width="138" height="15">
+    <span class="topbar-sub">Sistema</span>
+  </header>
+  <main>
+    <h1>Apps de Slavon</h1>
+    <div class="apps">
+      <a class="card app-link" href="obras/"><div class="grow"><b>Obras</b><div class="small muted">Avance por etapas, fotos, checklist de entrega y post-venta.</div></div><span class="badge ok">Lista</span></a>
+      <a class="card app-link off" href="admin/"><div class="grow"><b>Administración</b><div class="small muted">Cobros a clientes y pagos a proveedores.</div></div><span class="badge">Próximamente</span></a>
+      <a class="card app-link off" href="deposito/"><div class="grow"><b>Depósito</b><div class="small muted">Inventario, precios de proveedores y materiales.</div></div><span class="badge">Próximamente</span></a>
+      <a class="card app-link off" href="personal/"><div class="grow"><b>Personal</b><div class="small muted">Empleados y horas por obra.</div></div><span class="badge">Próximamente</span></a>
+      <a class="card app-link" href="https://caixx32.github.io/flota-slavon/"><div class="grow"><b>Flota</b><div class="small muted">Vehículos, usos, nafta, service y papeles.</div></div><span class="badge ok">Lista</span></a>
+    </div>
+  </main>
+</body>
+</html>

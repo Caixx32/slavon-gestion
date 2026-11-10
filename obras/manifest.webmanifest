@@ -1,0 +1,17 @@
+{
+  "name": "Obras Slavon",
+  "short_name": "Obras Slavon",
+  "description": "Avance de obras, fotos, checklist de entrega y post-venta de SLAVON.",
+  "lang": "es-AR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#22282c",
+  "theme_color": "#22282c",
+  "icons": [
+    { "src": "../shared/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "../shared/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "../shared/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

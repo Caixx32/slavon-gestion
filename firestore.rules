@@ -1,0 +1,70 @@
+rules_version = '2';
+
+// Reglas de seguridad del Sistema Slavon (todas las apps comparten esta base).
+// Pegar en la consola de Firebase → Firestore Database → Reglas → Publicar.
+// Los permisos se imponen acá, no sólo en la pantalla: nadie puede saltearlos yendo directo a la base.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true;
+    }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function isOwner() { return signedIn() && myEmail() == 'juanmarcospaterno@gmail.com'; }
+    function userDoc() { return /databases/$(database)/documents/users/$(myEmail()); }
+    function profile() { return get(userDoc()).data; }
+    function isActive() { return signedIn() && exists(userDoc()) && profile().get('activo', false) == true; }
+    // Puede dar de alta usuarios y cambiar permisos.
+    function isSuper() { return isOwner() || (isActive() && profile().get('super', false) == true); }
+    // Permiso de la persona en una app: 'admin', 'encargado' o '' (sin acceso).
+    function role(app) { return isOwner() ? 'admin' : (isActive() ? profile().get('apps', {}).get(app, '') : ''); }
+
+    /* ---------- Usuarios ---------- */
+    match /users/{email} {
+      // Cada uno lee su propio usuario. Los que manejan usuarios y los admin de alguna app ven la lista
+      // (para elegir encargados de obra, etc.).
+      allow read: if (signedIn() && email == myEmail())
+        || isSuper()
+        || role('obras') == 'admin' || role('deposito') == 'admin';
+      allow create, update: if isSuper() && email == email.lower()
+        && request.resource.data.keys().hasOnly(['nombre', 'apps', 'super', 'activo', 'editadoPor', 'editadoEn'])
+        && request.resource.data.nombre is string
+        && request.resource.data.apps is map
+        && request.resource.data.super is bool
+        && request.resource.data.activo is bool;
+      allow delete: if isOwner();
+    }
+
+    /* ---------- Obras ---------- */
+    function obrasAdmin() { return role('obras') == 'admin'; }
+    function obrasMember() { return role('obras') in ['admin', 'encargado']; }
+
+    match /obras/{id} {
+      allow read: if obrasMember();
+      allow create, delete: if obrasAdmin();
+      // El encargado sólo puede actualizar las etapas y el checklist (y queda registrado quién).
+      allow update: if obrasAdmin()
+        || (obrasMember()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['etapas', 'checklist', 'editadoPor', 'editadoPorNombre', 'editadoEn'])
+          && request.resource.data.editadoPor == myEmail());
+    }
+
+    match /fotos/{id} {
+      allow read: if obrasMember();
+      allow create: if obrasMember()
+        && request.resource.data.por == myEmail()
+        && request.resource.data.obraId is string
+        && request.resource.data.data is string
+        && request.resource.data.data.size() < 900000;
+      // Cada uno borra sus fotos; el admin, cualquiera.
+      allow delete: if obrasAdmin() || (obrasMember() && resource.data.por == myEmail());
+      allow update: if false;
+    }
+
+    // Lo que no está listado arriba (Administración, Depósito, Personal) queda cerrado hasta que se armen esas apps.
+  }
+}
