@@ -52,6 +52,7 @@
       document.getElementById('app').replaceChildren(main);
       buildTabs();
       cloud.subscribe('obras', (items) => { obras = items; render(); }, (e) => UI.toast(e.message, 5000));
+      if (canVenta) { loadBNA(); setInterval(loadBNA, 15 * 60 * 1000); }
       if (canVenta) cloud.subscribe('ventas', (items) => { ventas = Object.fromEntries(items.map((v) => [v._id, v])); render(); }, (e) => UI.toast(e.message, 5000));
       cloud.subscribe('users', (items) => { users = items; render(); }, () => {});
       cloud.subscribeDoc('config', 'obras', (d) => { config = d || {}; render(); }, () => {});
@@ -112,41 +113,47 @@
 
   /* ---------- Tipo de cambio: dólar oficial Banco Nación, vendedor ---------- */
 
-  // Lo carga a mano administración una vez por día, copiado de la página del Banco Nación.
-  // No se usa ninguna cotización automática: sólo vale el valor cargado hoy.
+  // Lo baja solo, cada 15 minutos en horario bancario, una tarea automática del repo (.github/workflows/dolar-bna.yml)
+  // directo de bna.com.ar, y lo deja en shared/bna.json. Se usa la cotización BILLETE, columna VENTA.
   const BNA_URL = 'https://www.bna.com.ar/Personas';
-  const tcHoy = () => (config.tcFecha === UI.today() && num(config.tcBNA) ? num(config.tcBNA) : 0);
+  const BNA_JSON = 'https://raw.githubusercontent.com/Caixx32/slavon-gestion/main/shared/bna.json';
+  const TC_TIPO = 'billete';
+  let bna = null;
 
-  function cargarTC() {
-    const f = UI.field({ label: 'Dólar oficial Banco Nación – vendedor ($)', name: 'tc', inputMode: 'decimal', value: config.tcFecha === UI.today() ? config.tcBNA : '', placeholder: 'Ej: 1475,50' });
-    UI.sheet({
-      title: 'Tipo de cambio de hoy',
-      body: [
-        h('p.muted.small', 'Copialo de la página del Banco Nación (cotización billete, columna «Venta»). Vale sólo para hoy: mañana hay que cargarlo de nuevo.'),
-        h('a.btn.small', { href: BNA_URL, target: '_blank', rel: 'noopener', style: { marginBottom: '14px' } }, 'Abrir Banco Nación'),
-        f,
-      ],
-      actions: [{ label: 'Cancelar' }, {
-        label: 'Guardar', kind: 'primary', onClick: () => {
-          const tc = num(UI.values(f).tc);
-          if (!tc) throw new Error('Poné el valor del dólar vendedor.');
-          const data = { ...config, tcBNA: String(tc), tcFecha: UI.today(), tcPorNombre: me.nombre, ...stamp() };
-          cloud.put('config', 'obras', data);
-          config = data;
-          UI.toast('Tipo de cambio guardado');
-          render();
-        },
-      }],
-    });
+  async function loadBNA() {
+    try {
+      const res = await fetch(BNA_JSON + '?t=' + Date.now(), { cache: 'no-store' });
+      const d = await res.json();
+      if (d && d[TC_TIPO] && Number(d[TC_TIPO].venta)) {
+        bna = d;
+        try { localStorage.setItem('sg-bna', JSON.stringify(d)); } catch (e) { /* nada */ }
+        render();
+      }
+    } catch (e) {
+      try { bna = bna || JSON.parse(localStorage.getItem('sg-bna') || 'null'); } catch (e2) { /* nada */ }
+      if (bna) render();
+    }
+  }
+
+  // Dólar BNA vendedor vigente hoy (el último publicado por el banco).
+  const tcHoy = () => (bna && bna[TC_TIPO] ? Number(bna[TC_TIPO].venta) : 0);
+  // Dólar BNA vendedor vigente en una fecha (el último leído ese día o antes).
+  function tcDe(fecha) {
+    if (!bna || !fecha) return 0;
+    if (fecha >= (bna.fecha || '')) return tcHoy();
+    const dias = Object.keys(bna.historico || {}).filter((d) => d <= fecha).sort();
+    const d = dias.pop();
+    return d && bna.historico[d][TC_TIPO] ? Number(bna.historico[d][TC_TIPO].venta) : 0;
   }
 
   function tcBox() {
     const tc = tcHoy();
+    const act = bna && bna.actualizado ? new Date(bna.actualizado) : null;
     return h('div.card.row.wrap', { style: { gap: '10px', padding: '10px 14px' } },
       h('div.grow', tc
-        ? [h('b', `Dólar BNA vendedor hoy: ${tcFmt(tc)}`), h('div.small.muted', `Cargado por ${config.tcPorNombre || '—'}`)]
-        : [h('b', { style: { color: 'var(--red)' } }, 'Falta cargar el dólar BNA de hoy'), h('div.small.muted', 'Sin eso no se muestran los montos en pesos.')]),
-      h('button.btn.small', { type: 'button', class: tc ? '' : 'primary', onclick: cargarTC }, tc ? 'Cambiar' : 'Cargar'));
+        ? [h('b', `Dólar BNA vendedor: ${tcFmt(tc)}`), h('div.small.muted', `Billete, columna Venta · leído de bna.com.ar${act && !isNaN(act) ? ' el ' + UI.fmtStamp(act.toISOString()) : ''}`)]
+        : [h('b', { style: { color: 'var(--red)' } }, 'Todavía no se pudo leer el dólar del Banco Nación'), h('div.small.muted', 'Sin eso no se muestran los montos en pesos.')]),
+      h('a.btn.small', { href: BNA_URL, target: '_blank', rel: 'noopener' }, 'Ver en BNA'));
   }
 
   /* ---------- Cálculos ---------- */
@@ -616,8 +623,8 @@
               h('span.badge.red', 'Pendiente'),
               h('button.btn.small', { type: 'button', onclick: () => registrarCondicion(o) }, 'Saldo cobrado'))),
         h('div.small.muted', { style: { marginTop: '6px' } }, tcHoy()
-          ? `Pesos al dólar oficial Banco Nación vendedor de hoy (${tcFmt(tcHoy())}), cargado por ${config.tcPorNombre || '—'}.`
-          : h('span', 'Para ver los pesos, cargá el dólar BNA vendedor de hoy. ', h('button.btn.small.ghost', { type: 'button', onclick: cargarTC }, 'Cargar'))),
+          ? `Pesos al dólar oficial Banco Nación vendedor (billete) vigente: ${tcFmt(tcHoy())}.`
+          : 'Todavía no se pudo leer el dólar del Banco Nación: no se muestran los pesos.'),
         v.saldoTC ? infoRow('Cobro en pesos', `${ars(num(v.saldoARS))} · TC BNA ${tcFmt(num(v.saldoTC))} del ${UI.fmtDay(v.saldoCobradoFecha)}`) : null,
         v.notasVenta ? infoRow('Notas de la venta', h('div', { style: { whiteSpace: 'pre-wrap' } }, v.notasVenta)) : null),
     ];
@@ -630,12 +637,21 @@
       h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
       UI.field({ label: financiado ? 'Fecha en que se recibió el contrato firmado' : 'Fecha en que se cobró el saldo', name: 'fecha', type: 'date', value: UI.today() }),
       financiado ? null : h('div.row', { style: { gap: '10px' } },
-        h('div.grow', UI.field({ label: 'Dólar BNA vendedor de ese día ($)', name: 'tc', inputMode: 'decimal', value: tcHoy() || '' })),
-        h('div.grow', UI.field({ label: 'Cobrado en pesos ($)', name: 'ars', inputMode: 'numeric', value: tcHoy() ? Math.round(saldoUSD(v) * tcHoy()) : '' }))),
+        h('div.grow', UI.field({ label: 'Dólar BNA vendedor de ese día ($)', name: 'tc', value: tcDe(UI.today()) ? tcFmt(tcDe(UI.today())) : 'Sin dato del BNA' })),
+        h('div.grow', UI.field({ label: 'Cobrado en pesos ($)', name: 'ars', inputMode: 'numeric', value: tcDe(UI.today()) ? Math.round(saldoUSD(v) * tcDe(UI.today())) : '' }))),
       financiado ? null : h('p.small.muted', { style: { marginTop: '-6px' } }, `Saldo: ${usd(saldoUSD(v))}. Si pagó en dólares, dejá los pesos vacíos.`),
       esVendida(o) ? h('label.check', h('input', { type: 'checkbox', name: 'habilitar', checked: true }), 'Habilitar la entrega ahora') : null);
+    // El tipo de cambio sale solo del Banco Nación según la fecha del cobro; no se escribe a mano.
     const tcInp = body.querySelector('[name=tc]');
-    if (tcInp) tcInp.addEventListener('input', () => { const tc = num(tcInp.value); body.querySelector('[name=ars]').value = tc ? Math.round(saldoUSD(v) * tc) : ''; });
+    const fechaInp = body.querySelector('[name=fecha]');
+    if (tcInp) {
+      tcInp.readOnly = true;
+      fechaInp.addEventListener('change', () => {
+        const tc = tcDe(fechaInp.value);
+        tcInp.value = tc ? tcFmt(tc) : 'Sin dato del BNA';
+        body.querySelector('[name=ars]').value = tc ? Math.round(saldoUSD(v) * tc) : '';
+      });
+    }
     UI.sheet({
       title: financiado ? 'Contrato firmado' : 'Saldo cobrado',
       body: [body],
@@ -644,7 +660,7 @@
           const val = UI.values(body);
           const data = financiado
             ? { contratoFirmado: true, contratoFecha: val.fecha || UI.today(), contratoPor: me.email, contratoPorNombre: me.nombre }
-            : { saldoCobrado: true, saldoCobradoFecha: val.fecha || UI.today(), saldoCobradoPor: me.email, saldoCobradoPorNombre: me.nombre, saldoTC: val.tc ? String(num(val.tc)) : '', saldoARS: val.ars ? String(num(val.ars)) : '' };
+            : { saldoCobrado: true, saldoCobradoFecha: val.fecha || UI.today(), saldoCobradoPor: me.email, saldoCobradoPorNombre: me.nombre, saldoTC: tcDe(val.fecha || UI.today()) ? String(tcDe(val.fecha || UI.today())) : '', saldoARS: val.ars ? String(num(val.ars)) : '' };
           cloud.write([{ op: ventas[o._id] ? 'update' : 'set', col: 'ventas', id: o._id, data: { ...data, ...stamp() } }]);
           if (val.habilitar) setTimeout(() => habilitar(o, true), 0);
           else UI.toast('Guardado');

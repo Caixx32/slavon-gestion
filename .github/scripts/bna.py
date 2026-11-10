@@ -91,7 +91,8 @@ def main():
         actual = {}
 
     ahora = datetime.now(ART)
-    fecha = datos['billete'].get('fecha') or ahora.strftime('%Y-%m-%d')
+    # La clave es el día en que se leyó (la cotización vigente ese día). La fecha que muestra la página queda aparte.
+    fecha = ahora.strftime('%Y-%m-%d')
     hist = actual.get('historico', {})
     hist[fecha] = {k: {'compra': v['compra'], 'venta': v['venta']} for k, v in datos.items()}
     hist = dict(sorted(hist.items())[-400:])
@@ -99,11 +100,12 @@ def main():
     nuevo = {
         'fuente': URL,
         'fecha': fecha,
+        'fechaPagina': datos['billete'].get('fecha', ''),
         'billete': {'compra': datos['billete']['compra'], 'venta': datos['billete']['venta']},
         'divisa': {'compra': datos['divisa']['compra'], 'venta': datos['divisa']['venta']} if 'divisa' in datos else None,
         'historico': hist,
     }
-    viejo = {k: actual.get(k) for k in ('fecha', 'billete', 'divisa', 'historico')}
+    viejo = {k: actual.get(k) for k in ('fecha', 'fechaPagina', 'billete', 'divisa', 'historico')}
     if viejo == {k: nuevo[k] for k in viejo}:
         print('Sin cambios:', nuevo['fecha'], nuevo['billete'])
         return
