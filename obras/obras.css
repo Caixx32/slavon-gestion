@@ -36,3 +36,22 @@
 .edit-row .btn.small { padding: 7px 6px; }
 
 .check-item input { width: 22px; height: 22px; accent-color: var(--ok); flex: none; }
+
+/* ---------- Panel ---------- */
+body.wide main { max-width: 1320px; }
+.kpis-wide { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.kpi.warn b { color: var(--warn); }
+.kpi.bad b { color: var(--red); }
+
+.board { display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 6px; }
+.board-col { background: var(--card-2); border-radius: var(--radius); padding: 10px; min-height: 120px; border: 1px solid var(--line); }
+.board-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; }
+.board-card { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); padding: 10px 12px; margin-bottom: 8px; cursor: pointer; font-size: 14px; }
+.board-card:hover { outline: 2px solid var(--red-soft); }
+
+.table-wrap { overflow-x: auto; background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); }
+.tabla { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 860px; }
+.tabla th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 12px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.tabla td { padding: 11px 14px; border-top: 1px solid var(--line); vertical-align: middle; }
+.tabla tbody tr { cursor: pointer; }
+.tabla tbody tr:hover { background: var(--card-2); }

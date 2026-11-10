@@ -37,14 +37,16 @@
       document.getElementById('app').replaceChildren(main);
       buildTabs();
       cloud.subscribe('obras', (items) => { obras = items; render(); }, (e) => UI.toast(e.message, 5000));
-      cloud.subscribe('users', (items) => { users = items; }, () => {});
+      cloud.subscribe('users', (items) => { users = items; render(); }, () => {});
       window.addEventListener('hashchange', render);
       render();
     },
   });
 
   function buildTabs() {
-    const tabs = [['inicio', 'home', 'Inicio'], ['obras', 'list', 'Obras']];
+    const tabs = [['inicio', 'home', 'Inicio']];
+    if (isAdmin) tabs.push(['panel', 'grid', 'Panel']);
+    tabs.push(['obras', 'list', 'Obras']);
     if (isAdmin) tabs.push(['postventa', 'phone', 'Post-venta']);
     tabs.push(['mas', 'menu', 'Más']);
     tabsEl.replaceChildren(...tabs.map(([id, ic, label]) => h('button', { type: 'button', 'data-tab': id, onclick: () => go(id) }, icon(ic), h('span', label))));
@@ -59,9 +61,11 @@
     tabsEl.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.tab === (r === 'obra' ? 'obras' : r)));
     if (r !== 'obra') watchFotos(null);
     document.querySelectorAll('.fab').forEach((f) => f.remove());
+    document.body.classList.toggle('wide', r === 'panel');
     if (r === 'obra') return viewObra(id);
     if (r === 'obras') return viewObras();
     if (r === 'postventa' && isAdmin) return viewPostventa();
+    if (r === 'panel' && isAdmin) return viewPanel();
     if (r === 'mas') return viewMas();
     if (r === 'usuarios' && me.super) return SG.usersScreen(main, () => go('mas'));
     return viewInicio();
@@ -149,6 +153,96 @@
 
   function addFab() {
     document.body.append(h('button.fab', { type: 'button', 'aria-label': 'Nueva obra', onclick: () => editObra(null) }, icon('plus')));
+  }
+
+  /* ---------- Panel (para la compu) ---------- */
+
+  // Fase de la obra según la etapa en la que está, para el tablero.
+  const FASES = [
+    ['prep', 'Preparación', /base|env[ií]o|pintura/i],
+    ['estr', 'Estructura y luces', /estructura|cableado|luces|vidrio/i],
+    ['cesp', 'Césped', /tendido|verde|corte|blanco/i],
+    ['term', 'Terminación', /arena|caucho|cepillado/i],
+  ];
+  function faseDe(o) {
+    if (o.estado === 'terminada') return 'fin';
+    const act = etapaActual(o);
+    if (!act) return 'term';
+    const f = FASES.find(([, , re]) => re.test(act.nombre));
+    return f ? f[0] : 'prep';
+  }
+  // Último avance: la fecha más reciente de una etapa hecha (o el inicio).
+  function ultimoAvance(o) {
+    const fechas = (o.etapas || []).filter((e) => e.estado === 'hecha' && e.fecha).map((e) => e.fecha);
+    return fechas.sort().pop() || o.inicio || UI.today();
+  }
+  const SIN_AVANCE_DIAS = 7;
+
+  function viewPanel() {
+    const enCurso = obras.filter((o) => o.estado !== 'terminada');
+    const mes = UI.today().slice(0, 7);
+    const terminadasMes = obras.filter((o) => o.estado === 'terminada' && (o.fin || '').startsWith(mes));
+    const quietas = enCurso.filter((o) => -UI.daysUntil(ultimoAvance(o)) > SIN_AVANCE_DIAS);
+    const vencidos = llamadosPendientes().filter((x) => UI.daysUntil(x.p.fecha) < 0);
+    const semana = llamadosPendientes().filter((x) => { const d = UI.daysUntil(x.p.fecha); return d >= 0 && d <= 7; });
+    const promedio = enCurso.length ? Math.round(enCurso.reduce((a, o) => a + progreso(o), 0) / enCurso.length) : 0;
+
+    // Tablero por fase
+    const cols = [...FASES.map(([k, n]) => [k, n]), ['fin', 'Terminadas']];
+    const board = h('div.board', cols.map(([k, n]) => {
+      const items = obras.filter((o) => faseDe(o) === k)
+        .filter((o) => k !== 'fin' || -UI.daysUntil(o.fin || UI.today()) <= 60)
+        .sort((a, b) => progreso(b) - progreso(a));
+      return h('div.board-col',
+        h('div.board-head', h('b', n), h('span.badge', items.length)),
+        items.length ? items.map((o) => {
+          const pct = progreso(o);
+          const act = etapaActual(o);
+          const quieta = o.estado !== 'terminada' && -UI.daysUntil(ultimoAvance(o)) > SIN_AVANCE_DIAS;
+          return h('div.board-card', { onclick: () => go('obra/' + o._id) },
+            h('div.ellipsis', { style: { fontWeight: 700 } }, o.nombre),
+            h('div.small.muted.ellipsis', tipoNombre(o.tipo)),
+            h('div', { style: { margin: '8px 0 6px' } }, progressBar(o.estado === 'terminada' ? 100 : pct)),
+            h('div.row.small',
+              h('span.grow.ellipsis', o.estado === 'terminada' ? 'Terminada ' + UI.fmtDay(o.fin) : act ? act.nombre : ''),
+              quieta ? h('span.badge.warn', 'Quieta') : h('b', { style: { color: 'var(--muted)' } }, (o.estado === 'terminada' ? 100 : pct) + '%')));
+        }) : h('div.small.muted', { style: { padding: '8px 2px' } }, 'Sin obras'));
+    }));
+
+    // Tabla
+    const rows = [...enCurso].sort((a, b) => progreso(b) - progreso(a));
+    const table = h('div.table-wrap', h('table.tabla',
+      h('thead', h('tr', ['Obra', 'Tipo', 'Avance', 'Etapa actual', 'Encargados', 'Días en obra', 'Último avance'].map((t) => h('th', t)))),
+      h('tbody', rows.length ? rows.map((o) => {
+        const pct = progreso(o);
+        const act = etapaActual(o);
+        const dias = -UI.daysUntil(o.inicio || UI.today());
+        const ult = -UI.daysUntil(ultimoAvance(o));
+        return h('tr', { onclick: () => go('obra/' + o._id) },
+          h('td', h('b', o.nombre), h('div.small.muted', o.ubicacion || '')),
+          h('td', tipoNombre(o.tipo)),
+          h('td', h('div.row', h('div.grow', { style: { minWidth: '80px' } }, progressBar(pct)), h('b', pct + '%'))),
+          h('td', act ? [act.nombre, act.estado === 'en_curso' ? h('span.badge.warn', { style: { marginLeft: '6px' } }, 'en curso') : null] : '—'),
+          h('td', (o.encargados || []).map(userName).join(', ') || '—'),
+          h('td', dias),
+          h('td', ult > SIN_AVANCE_DIAS ? h('span.badge.warn', `hace ${ult} días`) : ult <= 0 ? 'hoy' : `hace ${ult} día${ult > 1 ? 's' : ''}`));
+      }) : h('tr', h('td', { colSpan: 7, class: 'muted' }, 'No hay obras en curso.')))));
+
+    setMain(
+      h('div.row', h('h1.grow', 'Panel de obras'), h('button.btn.primary.small', { type: 'button', onclick: () => editObra(null) }, icon('plus'), 'Nueva obra')),
+      h('div.kpis.kpis-wide',
+        kpi(enCurso.length, 'Obras en curso', 'obras'),
+        kpi(promedio + '%', 'Avance promedio'),
+        h('div.kpi', { class: quietas.length ? 'warn' : '' }, h('b', quietas.length), h('span', `Sin avance hace +${SIN_AVANCE_DIAS} días`)),
+        kpi(terminadasMes.length, 'Terminadas este mes'),
+        h('div.kpi.tap', { class: vencidos.length ? 'bad' : '', onclick: () => go('postventa') }, h('b', vencidos.length), h('span', 'Llamados vencidos')),
+        kpi(semana.length, 'Llamados esta semana', 'postventa')),
+      h('h2', 'Tablero por etapa'),
+      board,
+      h('h2', 'Obras en curso'),
+      table,
+      quietas.length ? [h('h2', `Sin avance hace más de ${SIN_AVANCE_DIAS} días`), h('div.list', quietas.map((o) => h('div.item', { onclick: () => go('obra/' + o._id) },
+        h('span.dot.late', '!'), h('div.grow', h('div', { style: { fontWeight: 600 } }, o.nombre), h('div.small.muted', `Último avance ${UI.fmtDay(ultimoAvance(o))} · ${etapaActual(o) ? etapaActual(o).nombre : ''}`)), icon('chev'))))] : null);
   }
 
   /* ---------- Lista de obras ---------- */
@@ -591,6 +685,8 @@
       const base = { encargados: ['encargado@demo.slavon'], notas: '', editadoPorNombre: 'Juan' };
       put('obras', 'demo1', { ...base, nombre: 'Club Huracán – Cancha 1 (ejemplo)', tipo: 'futbol', cliente: 'Contacto de ejemplo', telefono: '11 5555 0001', ubicacion: 'Parque Patricios, CABA', inicio: UI.addDays(t, -12), estado: 'en_curso', etapas: mk('futbol', 4, true), checklist: ch('futbol'), postventa: [] });
       put('obras', 'demo2', { ...base, nombre: 'La Finca – Pádel 2 y 3 (ejemplo)', tipo: 'padel_completa', cliente: 'Contacto de ejemplo', telefono: '11 5555 0002', ubicacion: 'Pilar, Buenos Aires', inicio: UI.addDays(t, -20), estado: 'en_curso', etapas: mk('padel_completa', 6, true), checklist: ch('padel_completa'), postventa: [] });
+      const et5 = mk('padel_completa', 3, false).map((e) => (e.fecha ? { ...e, fecha: UI.addDays(e.fecha, -10) } : e));
+      put('obras', 'demo5', { ...base, nombre: 'Club Norte – Pádel 1 (ejemplo)', tipo: 'padel_completa', cliente: 'Contacto de ejemplo', telefono: '11 5555 0005', ubicacion: 'San Isidro, Buenos Aires', inicio: UI.addDays(t, -30), estado: 'en_curso', etapas: et5, checklist: ch('padel_completa'), postventa: [] });
       const fin3 = UI.addMonths(UI.addDays(t, 3), -1);
       put('obras', 'demo3', { ...base, nombre: 'Tercer Tiempo – F5 (ejemplo)', tipo: 'futbol', cliente: 'Contacto de ejemplo', telefono: '11 5555 0003', ubicacion: 'Morón, Buenos Aires', inicio: UI.addDays(fin3, -15), estado: 'terminada', fin: fin3, etapas: mk('futbol', 9), checklist: ch('futbol', true), postventa: pv(fin3, 0) });
       const fin4 = UI.addMonths(UI.addDays(t, -17), -6);
