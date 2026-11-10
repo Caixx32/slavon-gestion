@@ -28,7 +28,6 @@
   let fotos = [];        // fotos de la obra abierta
   let fotosObraId = null;
   let stopFotos = null;
-  let dolar = null;      // { venta, fecha } oficial Banco Nación
   const ui = { obrasFiltro: 'en_curso', busqueda: '', pvFiltro: 'pendientes', agendaMes: null };
 
   const AVISO_DIAS = 7;        // días antes de la entrega para avisar lo que falta (saldo o contrato)
@@ -55,8 +54,7 @@
       cloud.subscribe('obras', (items) => { obras = items; render(); }, (e) => UI.toast(e.message, 5000));
       if (canVenta) cloud.subscribe('ventas', (items) => { ventas = Object.fromEntries(items.map((v) => [v._id, v])); render(); }, (e) => UI.toast(e.message, 5000));
       cloud.subscribe('users', (items) => { users = items; render(); }, () => {});
-      cloud.subscribeDoc('config', 'obras', (d) => { config = d || {}; }, () => {});
-      if (canVenta) loadDolar();
+      cloud.subscribeDoc('config', 'obras', (d) => { config = d || {}; render(); }, () => {});
       window.addEventListener('hashchange', render);
       render();
     },
@@ -112,33 +110,60 @@
     }
   }
 
-  /* ---------- Dólar oficial (Banco Nación, vendedor) ---------- */
+  /* ---------- Tipo de cambio: dólar oficial Banco Nación, vendedor ---------- */
 
-  async function loadDolar() {
-    try {
-      const c = JSON.parse(localStorage.getItem('sg-dolar-oficial') || 'null');
-      if (c && c.fecha === UI.today()) { dolar = c; return; }
-    } catch (e) { /* sin caché */ }
-    try {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 6000);
-      const res = await fetch('https://dolarapi.com/v1/dolares/oficial', { signal: ctrl.signal, cache: 'no-store' });
-      clearTimeout(t);
-      const d = await res.json();
-      if (Number(d.venta)) {
-        dolar = { venta: Number(d.venta), fecha: UI.today() };
-        try { localStorage.setItem('sg-dolar-oficial', JSON.stringify(dolar)); } catch (e) { /* nada */ }
-        render();
-      }
-    } catch (e) { /* sin cotización: se muestra sólo en dólares */ }
+  // Lo carga a mano administración una vez por día, copiado de la página del Banco Nación.
+  // No se usa ninguna cotización automática: sólo vale el valor cargado hoy.
+  const BNA_URL = 'https://www.bna.com.ar/Personas';
+  const tcHoy = () => (config.tcFecha === UI.today() && num(config.tcBNA) ? num(config.tcBNA) : 0);
+
+  function cargarTC() {
+    const f = UI.field({ label: 'Dólar oficial Banco Nación – vendedor ($)', name: 'tc', inputMode: 'decimal', value: config.tcFecha === UI.today() ? config.tcBNA : '', placeholder: 'Ej: 1475,50' });
+    UI.sheet({
+      title: 'Tipo de cambio de hoy',
+      body: [
+        h('p.muted.small', 'Copialo de la página del Banco Nación (cotización billete, columna «Venta»). Vale sólo para hoy: mañana hay que cargarlo de nuevo.'),
+        h('a.btn.small', { href: BNA_URL, target: '_blank', rel: 'noopener', style: { marginBottom: '14px' } }, 'Abrir Banco Nación'),
+        f,
+      ],
+      actions: [{ label: 'Cancelar' }, {
+        label: 'Guardar', kind: 'primary', onClick: () => {
+          const tc = num(UI.values(f).tc);
+          if (!tc) throw new Error('Poné el valor del dólar vendedor.');
+          const data = { ...config, tcBNA: String(tc), tcFecha: UI.today(), tcPorNombre: me.nombre, ...stamp() };
+          cloud.put('config', 'obras', data);
+          config = data;
+          UI.toast('Tipo de cambio guardado');
+          render();
+        },
+      }],
+    });
+  }
+
+  function tcBox() {
+    const tc = tcHoy();
+    return h('div.card.row.wrap', { style: { gap: '10px', padding: '10px 14px' } },
+      h('div.grow', tc
+        ? [h('b', `Dólar BNA vendedor hoy: ${tcFmt(tc)}`), h('div.small.muted', `Cargado por ${config.tcPorNombre || '—'}`)]
+        : [h('b', { style: { color: 'var(--red)' } }, 'Falta cargar el dólar BNA de hoy'), h('div.small.muted', 'Sin eso no se muestran los montos en pesos.')]),
+      h('button.btn.small', { type: 'button', class: tc ? '' : 'primary', onclick: cargarTC }, tc ? 'Cambiar' : 'Cargar'));
   }
 
   /* ---------- Cálculos ---------- */
 
   const uid = () => Math.random().toString(36).slice(2, 10);
-  const num = (v) => Number(String(v ?? '').replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, '')) || 0;
+  // Lee números escritos a la argentina («1.475,50», «1475,5») o guardados con punto decimal («1475.5»).
+  const num = (v) => {
+    let t = String(v ?? '').trim().replace(/[^\d.,]/g, '');
+    if (!t) return 0;
+    if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+    else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+    return Number(t) || 0;
+  };
   const usd = (n) => (n ? 'US$ ' + n.toLocaleString('es-AR', { maximumFractionDigits: 0 }) : '');
   const ars = (n) => (n ? '$ ' + Math.round(n).toLocaleString('es-AR') : '');
+  // Tipo de cambio con sus centavos, tal cual lo publica el banco.
+  const tcFmt = (n) => (n ? '$ ' + n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
   const tipoNombre = (t) => (TIPOS[t] || TIPOS.otro).nombre;
   const userName = (email) => (users.find((u) => u._id === email) || {}).nombre || email;
   const stamp = () => ({ editadoPor: me.email, editadoPorNombre: me.nombre, editadoEn: cloud.serverTime() });
@@ -298,7 +323,7 @@
   function alertaItem(o) {
     const v = ventas[o._id];
     const d = UI.daysUntil(o.fechaEntrega);
-    const montos = v && v.formaPago !== 'financiado' ? [usd(saldoUSD(v)), dolar ? '≈ ' + ars(saldoUSD(v) * dolar.venta) : ''] : [];
+    const montos = v && v.formaPago !== 'financiado' ? [usd(saldoUSD(v)), tcHoy() ? '= ' + ars(saldoUSD(v) * tcHoy()) + ' hoy' : ''] : [];
     return h('div.item', { onclick: () => go('obra/' + o._id) },
       h('span.dot.late', v && v.formaPago === 'financiado' ? '✎' : '$'),
       h('div.grow',
@@ -446,7 +471,7 @@
     setMain(
       h('div.row', h('h1.grow', 'Ventas'), h('button.btn.primary.small', { type: 'button', onclick: () => editObra(null) }, icon('plus'), 'Nueva venta')),
       h('p.muted.small', `Contado: hay que cobrar el saldo antes de la entrega de materiales. Financiado: tiene que estar el contrato firmado en nuestro poder. ${AVISO_DIAS} días antes de la entrega avisa lo que falte.`),
-      dolar ? h('p.small', h('span.badge', `Dólar oficial BNA vendedor hoy: ${ars(dolar.venta)}`)) : null,
+      tcBox(),
       h('h2', 'Antes de entregar'),
       alertas.length ? h('div.list', alertas.map(alertaItem)) : h('div.card.empty.small', 'No falta nada para las entregas de los próximos días.'),
       habil.length ? [h('h2', 'Listas para habilitar la entrega'), h('div.list', habil.map(habilitarItem))] : null,
@@ -577,7 +602,7 @@
         alerta ? h('div.form-error', `Entrega ${UI.relDays(o.fechaEntrega)}: ${faltaTexto(v).toLowerCase()}. Si no está, se retrasa la entrega.`) : null,
         infoRow('Fecha de venta', [UI.fmtDay(o.fechaVenta) || '—', v.vendio ? h('span.muted', ' · vendió ' + v.vendio) : null, o.creadoPorNombre ? h('span.muted', ' · cargó ' + o.creadoPorNombre) : null]),
         infoRow('Plazo', [o.plazo ? window.OBRAS_PLAZOS[o.plazo].nombre : '—', o.fechaEntrega ? h('div', 'Entrega: ', h('b', UI.fmtDay(o.fechaEntrega)), !esTerminada(o) ? h('span.muted', ' (' + UI.relDays(o.fechaEntrega) + ')') : null) : null]),
-        infoRow('Precio', v.precioUSD ? [usd(num(v.precioUSD)), dolar ? h('span.muted', ' ≈ ' + ars(num(v.precioUSD) * dolar.venta)) : null] : 'Sin cargar'),
+        infoRow('Precio', v.precioUSD ? [usd(num(v.precioUSD)), tcHoy() ? h('span.muted', ' = ' + ars(num(v.precioUSD) * tcHoy()) + ' hoy') : null] : 'Sin cargar'),
         infoRow('Forma de pago', financiado ? 'Financiado' : 'Contado'),
         infoRow('Seña', v.senaUSD ? [usd(num(v.senaUSD)), v.senaFecha ? h('span.muted', ' · ' + UI.fmtDay(v.senaFecha)) : null] : '—'),
         financiado
@@ -587,10 +612,13 @@
           : infoRow('Saldo', v.saldoCobrado
             ? h('span', h('span.badge.ok', 'Cobrado'), ' ', UI.fmtDay(v.saldoCobradoFecha), v.saldoCobradoPorNombre ? h('span.muted', ' · ' + v.saldoCobradoPorNombre) : null)
             : h('span.row.wrap', { style: { gap: '8px' } },
-              h('span', usd(saldo) || '—', dolar && saldo ? h('span.muted', ' ≈ ' + ars(saldo * dolar.venta)) : null),
+              h('span', usd(saldo) || '—', tcHoy() && saldo ? h('span.muted', ' = ' + ars(saldo * tcHoy()) + ' hoy') : null),
               h('span.badge.red', 'Pendiente'),
               h('button.btn.small', { type: 'button', onclick: () => registrarCondicion(o) }, 'Saldo cobrado'))),
-        dolar ? h('div.small.muted', { style: { marginTop: '6px' } }, `Pesos aproximados con el dólar oficial BNA vendedor de hoy (${ars(dolar.venta)}). Se paga en pesos con el tipo de cambio del día del pago.`) : null,
+        h('div.small.muted', { style: { marginTop: '6px' } }, tcHoy()
+          ? `Pesos al dólar oficial Banco Nación vendedor de hoy (${tcFmt(tcHoy())}), cargado por ${config.tcPorNombre || '—'}.`
+          : h('span', 'Para ver los pesos, cargá el dólar BNA vendedor de hoy. ', h('button.btn.small.ghost', { type: 'button', onclick: cargarTC }, 'Cargar'))),
+        v.saldoTC ? infoRow('Cobro en pesos', `${ars(num(v.saldoARS))} · TC BNA ${tcFmt(num(v.saldoTC))} del ${UI.fmtDay(v.saldoCobradoFecha)}`) : null,
         v.notasVenta ? infoRow('Notas de la venta', h('div', { style: { whiteSpace: 'pre-wrap' } }, v.notasVenta)) : null),
     ];
   }
@@ -601,7 +629,13 @@
     const body = h('div',
       h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
       UI.field({ label: financiado ? 'Fecha en que se recibió el contrato firmado' : 'Fecha en que se cobró el saldo', name: 'fecha', type: 'date', value: UI.today() }),
+      financiado ? null : h('div.row', { style: { gap: '10px' } },
+        h('div.grow', UI.field({ label: 'Dólar BNA vendedor de ese día ($)', name: 'tc', inputMode: 'decimal', value: tcHoy() || '' })),
+        h('div.grow', UI.field({ label: 'Cobrado en pesos ($)', name: 'ars', inputMode: 'numeric', value: tcHoy() ? Math.round(saldoUSD(v) * tcHoy()) : '' }))),
+      financiado ? null : h('p.small.muted', { style: { marginTop: '-6px' } }, `Saldo: ${usd(saldoUSD(v))}. Si pagó en dólares, dejá los pesos vacíos.`),
       esVendida(o) ? h('label.check', h('input', { type: 'checkbox', name: 'habilitar', checked: true }), 'Habilitar la entrega ahora') : null);
+    const tcInp = body.querySelector('[name=tc]');
+    if (tcInp) tcInp.addEventListener('input', () => { const tc = num(tcInp.value); body.querySelector('[name=ars]').value = tc ? Math.round(saldoUSD(v) * tc) : ''; });
     UI.sheet({
       title: financiado ? 'Contrato firmado' : 'Saldo cobrado',
       body: [body],
@@ -610,7 +644,7 @@
           const val = UI.values(body);
           const data = financiado
             ? { contratoFirmado: true, contratoFecha: val.fecha || UI.today(), contratoPor: me.email, contratoPorNombre: me.nombre }
-            : { saldoCobrado: true, saldoCobradoFecha: val.fecha || UI.today(), saldoCobradoPor: me.email, saldoCobradoPorNombre: me.nombre };
+            : { saldoCobrado: true, saldoCobradoFecha: val.fecha || UI.today(), saldoCobradoPor: me.email, saldoCobradoPorNombre: me.nombre, saldoTC: val.tc ? String(num(val.tc)) : '', saldoARS: val.ars ? String(num(val.ars)) : '' };
           cloud.write([{ op: ventas[o._id] ? 'update' : 'set', col: 'ventas', id: o._id, data: { ...data, ...stamp() } }]);
           if (val.habilitar) setTimeout(() => habilitar(o, true), 0);
           else UI.toast('Guardado');
