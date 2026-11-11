@@ -209,3 +209,6 @@ body.wide main { max-width: 1320px; }
 .tributo { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 6px; margin-bottom: 8px; }
 .tributo input { width: 100%; min-width: 0; border: 1px solid var(--field-line); background: var(--field); border-radius: 10px; padding: 9px 10px; font-size: 15px; }
 .badge.chico { flex: none; font-size: 11px; padding: 1px 6px; }
+
+.envio { display: flex; align-items: center; gap: 6px; margin: 0; }
+.envio select { border: 1px solid var(--field-line); background: var(--field); border-radius: 8px; padding: 6px 8px; font-size: 14px; }

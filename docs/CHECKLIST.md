@@ -8,7 +8,7 @@ Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado co
 ## 0. Base común (va primero porque lo usan todas las áreas)
 
 - [x] **Catálogo de vendedores**: lista editable (alta/baja). Se usa en el desplegable "Quién vendió".
-- [x] **Catálogo de revendedores**: lista editable, con % de comisión por defecto (se puede cambiar en cada venta).
+- [x] **Catálogo de revendedores**: lista editable. La comisión es un monto fijo que se carga en cada venta (sin %).
 - [x] **Catálogo de clientes**: alta de clientes para elegirlos de un desplegable y no tipear (evita duplicados y permite reportes).
 - [x] **Catálogo de proveedores**: alta de proveedores con sus cuentas bancarias (CBU/alias, banco, titular). Se usan en "Transferencia a proveedor".
 - [x] **Catálogo de cuentas propias**: W. MAX SRL, Atlantis, efectivo oficina, etc. Se usan en "Cuenta nuestra".
@@ -44,7 +44,7 @@ Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado co
 ### Vendedor
 - [x] "Quién vendió" pasa a ser **desplegable** (del catálogo), no texto libre.
 - [x] Permitir **más de un vendedor** por venta.
-- [x] Opción **revendedor**: si aplica, elegirlo del catálogo y cargar/ver la **comisión** (% y monto calculado sobre el presupuesto).
+- [x] Opción **revendedor**: si aplica, elegirlo del catálogo y cargar la **comisión**: **monto fijo por venta** (US$ o $), no porcentaje.
 
 ### Datos del cliente
 - [x] Dos identificadores, usables por separado o juntos: **Nombre del cliente** y **Club**. Al menos uno es obligatorio.
@@ -93,6 +93,11 @@ Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado co
 - [x] Arena y caucho **se calculan aunque los ponga el cliente**. Cantidades **corregibles a mano**.
 - [x] Botón **«Solo césped»**: todo lo demás pasa a cargo del cliente.
 - [x] Si **Instalación = Cliente → SIN GARANTÍA**: avisar, garantía en 0 y dejarlo escrito en la venta y en el acta.
+
+### Correcciones después de probar la Fase 2
+- [x] **Envío** de cada ítem de «Qué incluye»: **Sí / No / A definir** (por defecto «A definir»). En la ficha de Entregas (cuadro «Materiales») el encargado lo puede completar.
+- [x] **Pegamento y cinta**: por defecto los provee Slavon; con «Solo césped» pasan a cargo del cliente, como el resto.
+- [x] **Revendedor**: comisión en monto fijo (US$ o $); sin % en el catálogo.
 
 ### Plano
 - [x] **Adjuntar plano** (PDF o imagen), uno o varios.

@@ -258,6 +258,10 @@
     return cespedesCatalogo().filter((x) => (x.activo !== false || x._id === actualId) && (x.deportes || []).includes(dep));
   }
   const PROVEE = { slavon: 'Slavon', cliente: 'Cliente' };
+  const ENVIOS = [['definir', 'A definir'], ['si', 'Sí'], ['no', 'No']];
+  // Envío: 'si' | 'no' | 'definir'. Las obras de antes tenían un tilde (sí o nada).
+  const envioNorm = (e) => (e === 'si' || e === true ? 'si' : e === 'no' ? 'no' : 'definir');
+  const envioTexto = (e) => ({ si: 'con envío', no: 'sin envío', definir: 'envío a definir' }[envioNorm(e)]);
 
   /*
    * Todo lo de la cancha a partir de lo cargado en la venta: superficie, blanco, m² de césped, arena, caucho,
@@ -323,16 +327,20 @@
       delete x.cantidadAuto;
       return x;
     };
+    // Envío de cada ítem: 'si' | 'no' | 'definir' (por defecto «A definir»). Lo completa Ventas o Entregas.
+    const envios = {};
+    for (const it of window.OBRAS_INCLUYE) if (!it.sinEnvio) envios[it.id] = envioNorm((d.envios || {})[it.id] ?? (inc0[it.id] || {}).envio);
     const incluye = {
-      cesped: { aplica: true, cantidad: m2, unidad: 'm²', provee: 'slavon', envio: !!(inc0.cesped && inc0.cesped.envio) },
-      blanco: item('blanco', { aplica: blanco.modo === 'calculo' || blanco.modo === 'manual', cantidadAuto: CALC.round2(num(blanco.m2) * cantidad), auto: true, unidad: 'm²', provee: 'slavon', envio: false }),
-      arena: item('arena', { aplica: arenaKgM2 > 0, cantidadAuto: CALC.kgMaterial(superficieTotal, arenaKgM2), auto: true, unidad: 'kg', provee: window.OBRAS_PROVEE.arena, envio: false }),
-      caucho: item('caucho', { aplica: cauchoKgM2 > 0, cantidadAuto: CALC.kgMaterial(superficieTotal, cauchoKgM2), auto: true, unidad: 'kg', provee: window.OBRAS_PROVEE.caucho, envio: false }),
-      pegamento: item('pegamento', { aplica: true, unidad: '', provee: 'slavon', envio: false }),
-      cinta: item('cinta', { aplica: true, unidad: '', provee: 'slavon', envio: false }),
+      cesped: { aplica: true, cantidad: m2, unidad: 'm²', provee: 'slavon' },
+      blanco: item('blanco', { aplica: blanco.modo === 'calculo' || blanco.modo === 'manual', cantidadAuto: CALC.round2(num(blanco.m2) * cantidad), auto: true, unidad: 'm²', provee: 'slavon' }),
+      arena: item('arena', { aplica: arenaKgM2 > 0, cantidadAuto: CALC.kgMaterial(superficieTotal, arenaKgM2), auto: true, unidad: 'kg', provee: window.OBRAS_PROVEE.arena }),
+      caucho: item('caucho', { aplica: cauchoKgM2 > 0, cantidadAuto: CALC.kgMaterial(superficieTotal, cauchoKgM2), auto: true, unidad: 'kg', provee: window.OBRAS_PROVEE.caucho }),
+      pegamento: item('pegamento', { aplica: true, unidad: '', provee: 'slavon' }),
+      cinta: item('cinta', { aplica: true, unidad: '', provee: 'slavon' }),
       instalacion: item('instalacion', { aplica: true, provee: 'slavon' }),
     };
     incluye.cesped.provee = 'slavon';
+    for (const [id, e] of Object.entries(envios)) incluye[id].envio = e;
     for (const k of ['blanco', 'arena', 'caucho']) if (incluye[k].auto === false && !num(incluye[k].cantidad)) incluye[k].auto = true;
     const conInstalacion = incluye.instalacion.provee !== 'cliente';
     // Multisport en residencial lleva arena: sin arena no tiene garantía.
@@ -348,7 +356,7 @@
       blanco, bicolorExtraM2, cespedDet: cesped,
       cespedModelo: cesped.modeloId ? cesped.nombre : '', cespedOtro: cesped.modeloId ? '' : cesped.nombre, bicolor, colores: cesped.colores,
       cesped: [cesped.nombre, cesped.alturaMm ? cesped.alturaMm + ' mm' : '', bicolor ? 'bicolor' : cesped.nombre ? 'monocolor' : '', cesped.colores].filter(Boolean).join(' · '),
-      incluye, multisportResidencial, clienteColocaArena,
+      incluye, envios, multisportResidencial, clienteColocaArena,
       sinGarantia: !conInstalacion,
       demarcacion: blanco.demarcacion,
       conInstalacion,
@@ -373,7 +381,7 @@
       m2Manual: medidaDe(o.tipo) === 'm2' ? o.m2 : '', cespedId: cespedId || (cd.nombre || o.cespedOtro || o.cesped ? 'otro' : ''),
       cespedOtro: cd.modeloId ? '' : cd.nombre || o.cespedOtro || (!cespedId ? o.cesped : '') || '', altura: cd.alturaMm, color: cd.color || (o.bicolor ? 'bicolor' : 'mono'),
       colores: cd.colores ?? o.colores ?? '', bicolorExtra: o.bicolorExtraM2, demarcacion: b.demarcacion || o.demarcacion, s: b.s, anchoLineaCm: b.anchoLineaCm,
-      desperdicio: b.desperdicio, mlExtra: b.mlExtra, blancoManual: b.manual ? b.m2 : '', clienteColocaArena: o.clienteColocaArena, incluye,
+      desperdicio: b.desperdicio, mlExtra: b.mlExtra, blancoManual: b.manual ? b.m2 : '', clienteColocaArena: o.clienteColocaArena, incluye, envios: o.envios,
     };
   }
   // La cancha de una obra ya calculada (con lo guardado, sin recalcular cantidades corregidas a mano).
@@ -414,7 +422,7 @@
       const x = k.incluye[it.id];
       const cant = it.id === 'pegamento' || it.id === 'cinta' ? cantidadEntrega(o, it.id) : num(x.cantidad) ? `${fmtNum(num(x.cantidad))} ${x.unidad}` : '';
       return { id: it.id, nombre: it.nombre, texto: [cant, it.id === 'instalacion' ? (x.provee === 'cliente' ? 'a cargo del cliente' : 'la hace Slavon') : `la provee ${x.provee === 'cliente' ? 'el cliente' : 'Slavon'}`,
-        conEnvio && !it.sinEnvio ? (x.envio ? 'con envío' : 'sin envío') : ''].filter(Boolean).join(' · '), cliente: x.provee === 'cliente' };
+        conEnvio && !it.sinEnvio ? envioTexto(x.envio) : ''].filter(Boolean).join(' · '), cliente: x.provee === 'cliente', envio: it.sinEnvio ? null : envioNorm(x.envio) };
     });
   }
   // Pegamento y cinta: la cantidad la carga Federico en Entregas.
@@ -948,7 +956,7 @@
         infoRow('Fecha de venta', [UI.fmtDay(o.fechaVenta) || '—', o.creadoPorNombre ? h('span.muted', ' · cargó ' + o.creadoPorNombre) : null]),
         o.pedido ? infoRow('N° de pedido', o.pedido) : null,
         infoRow('Vendió', vendedoresTexto(v) || '—'),
-        v.revendedor ? infoRow('Revendedor', [h('div', v.revendedor.nombre), h('div.small.muted', `Comisión ${fmtNum(num(v.revendedor.comisionPct))} %${precioDe(v) ? ' = ' + CALC.money(CALC.round2((precioDe(v) * num(v.revendedor.comisionPct)) / 100), monedaDe(v)) : ''}`)]) : null,
+        v.revendedor ? infoRow('Revendedor', [h('div', v.revendedor.nombre), h('div.small.muted', comisionTexto(v.revendedor) ? `Comisión: ${comisionTexto(v.revendedor)}` : 'Comisión sin cargar')]) : null,
         infoRow('Plazo', plazoTexto(o) || '—'),
         infoRow('Fecha de entrega', o.fechaEntrega ? h('b', UI.fmtDay(o.fechaEntrega)) : '—'),
         infoRow('Garantía', garantiaTexto(o) || '—'),
@@ -1465,7 +1473,7 @@
       !term && esCurso(o) ? h('div', { style: { margin: '12px 0 0' } }, progressBar(pct)) : null,
       h('h2', 'Agenda y equipo'),
       entregaCard(o),
-      h('div.row', h('h2.grow', 'Materiales'), !term ? h('button.btn.small', { type: 'button', onclick: () => editMateriales(o) }, icon('edit'), 'Pegamento y cinta') : null),
+      h('div.row', h('h2.grow', 'Materiales'), !term ? h('button.btn.small', { type: 'button', onclick: () => editMateriales(o) }, icon('edit'), 'Cantidades y envío') : null),
       materialesCard(o),
       o.interior ? [h('h2', 'Logística del interior'), logisticaCard(o)] : null,
       h('div.row', h('h2.grow', 'Etapas'), h('button.btn.small.ghost', { type: 'button', onclick: () => editEtapas(o) }, icon('edit'), 'Editar')),
@@ -1592,21 +1600,28 @@
   // Materiales de la obra: lo calculado en la venta y, para pegamento y cinta, la cantidad que carga Entregas.
   function materialesCard(o) {
     const lineas = incluyeLineas(o).filter((l) => l.id !== 'instalacion');
-    return h('div.card.info', lineas.map((l) => infoRow(l.nombre, [h('div', l.texto), l.cliente ? h('span.badge.warn', 'Lo pone el cliente') : null])));
+    return h('div.card.info', lineas.map((l) => infoRow(l.nombre, [h('div', l.texto),
+      h('div.row.wrap', { style: { gap: '4px', marginTop: '3px' } }, l.cliente ? h('span.badge.warn', 'Lo pone el cliente') : null)])));
   }
 
+  // Entregas completa cuánto pegamento y cinta lleva, y el envío de cada ítem (Sí / No / A definir).
   function editMateriales(o) {
     const m0 = o.materialesEntrega || {};
+    const k = canchaDe(o);
     const campos = [['pegamento', 'Pegamento', 'Ej: baldes, kg'], ['cinta', 'Cinta de unión', 'Ej: m, rollos']].map(([id, nombre, ph]) => {
       const cant = UI.field({ label: `${nombre}: cantidad`, name: id + 'Cant', value: m0[id] && num(m0[id].cantidad) ? fmtNum(num(m0[id].cantidad)) : '' });
       numeroInput(cant.querySelector('input'));
       const uni = UI.field({ label: 'Unidad', name: id + 'Uni', value: (m0[id] && m0[id].unidad) || '', placeholder: ph });
       return fila2(cant, uni);
     });
-    const body = h('div', h('p.muted', { style: { marginTop: '-8px' } }, o.nombre), ...campos,
-      h('p.small.muted', 'Quién lo provee se define en la venta. Acá se carga cuánto lleva.'));
+    const envios = window.OBRAS_INCLUYE.filter((it) => !it.sinEnvio && k.incluye[it.id] && k.incluye[it.id].aplica).map((it) =>
+      UI.field({ label: `${it.nombre}: envío`, name: 'env_' + it.id, type: 'select', value: envioNorm(k.envios[it.id]), options: ENVIOS }));
+    const body = h('div', h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
+      h('div.field-title', 'Pegamento y cinta'), ...campos,
+      h('div.field-title', 'Envío incluido'), ...envios.map((f, i) => (i % 2 ? null : fila2(f, envios[i + 1] || h('div')))),
+      h('p.small.muted', 'Quién lo provee se define en la venta.'));
     UI.sheet({
-      title: 'Pegamento y cinta',
+      title: 'Materiales',
       body: [body],
       actions: [{ label: 'Cancelar' }, {
         label: 'Guardar', kind: 'primary', onClick: () => {
@@ -1615,7 +1630,9 @@
             pegamento: { cantidad: num(v.pegamentoCant), unidad: v.pegamentoUni, porNombre: me.nombre, fecha: UI.today() },
             cinta: { cantidad: num(v.cintaCant), unidad: v.cintaUni, porNombre: me.nombre, fecha: UI.today() },
           };
-          cloud.patch('obras', o._id, { materialesEntrega, ...stamp() });
+          const env = { ...(o.envios || {}) };
+          for (const key of Object.keys(v)) if (key.startsWith('env_')) env[key.slice(4)] = envioNorm(v[key]);
+          cloud.patch('obras', o._id, { materialesEntrega, envios: env, ...stamp() });
           UI.toast('Guardado');
         },
       }],
@@ -2315,7 +2332,7 @@
   const catNombre = (k, x) => (k === 'clientes' ? clienteTexto(x.club, x.clienteNombre) : x.nombre) || 'Sin nombre';
   const obrasDeCliente = (id) => obras.filter((o) => o.clienteId === id);
   function catSub(k, x) {
-    if (k === 'revendedores') return [`Comisión ${fmtNum(num(x.comisionPct))} %`, ...(x.contactos || []).map((c) => c.valor)].join(' · ');
+    if (k === 'revendedores') return [...(x.contactos || []).map((c) => c.valor), x.notas].filter(Boolean).join(' · ') || 'Sin contactos';
     if (k === 'clientes') {
       const n = obrasDeCliente(x._id).length;
       return [...(x.contactos || []).map((c) => c.valor), x.cuit ? 'CUIT ' + x.cuit : '', n ? (n === 1 ? '1 obra' : n + ' obras') : 'sin obras'].filter(Boolean).join(' · ');
@@ -2439,9 +2456,7 @@
     if (k === 'vendedores') campos = [nombreF];
     else if (k === 'revendedores') {
       extra = contactosEditor(d.contactos || []);
-      const pct = UI.field({ label: 'Comisión por defecto (%)', name: 'comisionPct', value: d.comisionPct != null ? fmtNum(num(d.comisionPct)) : '', placeholder: 'Ej: 10' });
-      numeroInput(pct.querySelector('input'));
-      campos = [nombreF, pct, extra.el, notasF];
+      campos = [nombreF, h('p.small.muted', { style: { marginTop: '-8px' } }, 'La comisión es un monto fijo que se carga en cada venta.'), extra.el, notasF];
     } else if (k === 'clientes') {
       extra = contactosEditor(d.contactos || []);
       const os = x ? obrasDeCliente(x._id) : [];
@@ -2492,7 +2507,7 @@
       } else {
         if (!v.nombre) throw new Error('Poné el nombre.');
         data = { nombre: v.nombre };
-        if (k === 'revendedores') Object.assign(data, { comisionPct: num(v.comisionPct), contactos: extra.leer(), notas: v.notas });
+        if (k === 'revendedores') Object.assign(data, { contactos: extra.leer(), notas: v.notas });
         if (k === 'proveedores') Object.assign(data, { cuit: v.cuit, cuentas: extra.leer(), notas: v.notas });
         if (k === 'cespedes') {
           const deportes = Object.keys(window.OBRAS_DEPORTES).filter((id) => v['dep_' + id]);
@@ -2580,42 +2595,42 @@
     return { el, leer: () => sel };
   }
 
-  // Revendedor (opcional) con su comisión: % editable en cada venta y monto calculado sobre el presupuesto.
+  // Revendedor (opcional) con su comisión: un monto fijo por venta, en US$ o $.
+  const comisionTexto = (r) => (r && num(r.comisionMonto) ? CALC.money(num(r.comisionMonto), r.comisionMoneda === 'ARS' ? 'ARS' : 'USD') : '');
   function revendedorPicker(v, getPrecio) {
     const r0 = v.revendedor || null;
     const chk = h('input', { type: 'checkbox', checked: !!r0 });
     const selF = UI.field({ label: 'Revendedor', name: '', type: 'select', value: r0 ? r0.id : '', options: [] });
-    const pctF = UI.field({ label: 'Comisión (%)', name: '', value: r0 ? fmtNum(num(r0.comisionPct)) : '' });
-    [selF, pctF].forEach((f) => f.querySelector('input,select').removeAttribute('name'));
+    const monF = UI.field({ label: 'Moneda', name: '', type: 'select', value: (r0 && r0.comisionMoneda) || monedaDe(v), options: [['USD', 'US$'], ['ARS', '$']] });
+    const montoF = UI.field({ label: 'Comisión (monto fijo)', name: '', value: r0 && num(r0.comisionMonto) ? fmtNum(num(r0.comisionMonto)) : '' });
+    [selF, monF, montoF].forEach((f) => f.querySelector('input,select').removeAttribute('name'));
     const sel = selF.querySelector('select');
-    const pct = numeroInput(pctF.querySelector('input'));
-    const calc = h('div.calc');
-    const box = h('div', fila2(selF, pctF), calc);
+    const mon = monF.querySelector('select');
+    const monto = numeroInput(montoF.querySelector('input'));
+    const box = h('div', selF, h('div.row', { style: { gap: '10px', alignItems: 'flex-start' } }, h('div', { style: { width: '34%' } }, monF), h('div.grow', montoF)));
+    let monedaTocada = !!(r0 && r0.comisionMoneda);
+    mon.addEventListener('change', () => { monedaTocada = true; });
     const llenar = (elegido) => {
       const lista = activos(cat.revendedores, elegido);
-      if (elegido && !lista.some((x) => x._id === elegido) && r0) lista.push({ _id: r0.id, nombre: r0.nombre, comisionPct: r0.comisionPct });
+      if (elegido && !lista.some((x) => x._id === elegido) && r0) lista.push({ _id: r0.id, nombre: r0.nombre });
       sel.replaceChildren(h('option', { value: '' }, lista.length ? 'Elegí…' : 'No hay revendedores cargados'),
         ...lista.map((x) => h('option', { value: x._id, selected: x._id === elegido }, x.nombre)), h('option', { value: '__nuevo' }, '+ Nuevo revendedor…'));
       sel.value = elegido || '';
     };
+    // La moneda de la comisión sigue a la de la venta mientras no se elija otra.
     const refresh = () => {
       box.hidden = !chk.checked;
-      const precio = getPrecio();
-      const p = num(pct.value);
-      calc.replaceChildren(h('div', precio.monto && p ? `Comisión: ${CALC.money(CALC.round2((precio.monto * p) / 100), precio.moneda)} (${fmtNum(p)} % de ${CALC.money(precio.monto, precio.moneda)})` : 'Poné el presupuesto y el % para ver la comisión.'));
+      if (!monedaTocada) mon.value = getPrecio().moneda;
     };
     sel.addEventListener('change', () => {
       if (sel.value === '__nuevo') {
         llenar('');
-        editCatalogo('revendedores', null, (id, doc) => setTimeout(() => { llenar(id); pct.value = fmtNum(num(doc.comisionPct)); refresh(); }, 50));
+        editCatalogo('revendedores', null, (id) => setTimeout(() => { llenar(id); refresh(); }, 50));
         return;
       }
-      const x = cat.revendedores.find((r) => r._id === sel.value);
-      if (x) pct.value = fmtNum(num(x.comisionPct));
       refresh();
     });
     chk.addEventListener('change', refresh);
-    pct.addEventListener('input', refresh);
     llenar(r0 ? r0.id : '');
     refresh();
     const el = h('div', h('label.check', chk, 'Lo vendió un revendedor'), box);
@@ -2625,7 +2640,8 @@
         if (!chk.checked) return null;
         const x = cat.revendedores.find((r) => r._id === sel.value) || (r0 && r0.id === sel.value ? r0 : null);
         if (!x) throw new Error('Elegí el revendedor o destildá «Lo vendió un revendedor».');
-        return { id: sel.value, nombre: x.nombre, comisionPct: num(pct.value) };
+        if (!(num(monto.value) > 0)) throw new Error('Poné el monto de la comisión del revendedor.');
+        return { id: sel.value, nombre: x.nombre, comisionMonto: num(monto.value), comisionMoneda: mon.value === 'ARS' ? 'ARS' : 'USD' };
       },
     };
   }
@@ -2797,7 +2813,8 @@
       const x0 = (d0.incluye || {})[it.id] || {};
       const prov = sel(`inc_${it.id}_provee`, it.id === 'cesped' ? 'slavon' : x0.provee || (it.id === 'arena' || it.id === 'caucho' ? window.OBRAS_PROVEE[it.id] : 'slavon'), [['slavon', it.id === 'instalacion' ? 'La hace Slavon' : 'Slavon'], ['cliente', it.id === 'instalacion' ? 'A cargo del cliente' : 'Cliente']]);
       if (it.id === 'cesped') q(prov).disabled = true;
-      const envio = it.sinEnvio ? null : h('label.check.envio', h('input', { type: 'checkbox', name: `inc_${it.id}_envio`, checked: !!x0.envio }), 'Envío');
+      const envio = it.sinEnvio ? null : h('label.envio', h('span.small.muted', 'Envío'), h('select', { name: `inc_${it.id}_envio` },
+        ENVIOS.map(([val, txt]) => h('option', { value: val, selected: val === envioNorm((d0.envios || {})[it.id] ?? x0.envio) }, txt))));
       let cant = null;
       let recalcular = null;
       if (it.id === 'arena' || it.id === 'caucho') {
@@ -2810,14 +2827,14 @@
       const row = h('div.item.incluye-row', { style: { cursor: 'default' } },
         h('div.incluye-a', h('b', it.nombre), cant ? h('span.incluye-cant', cant, h('span.small.muted', ' kg')) : null, info, recalcular),
         h('div.incluye-b', prov, envio));
-      filas[it.id] = { row, prov: q(prov), envio: envio && envio.querySelector('input'), cant, info, recalcular };
+      filas[it.id] = { row, prov: q(prov), envio: envio && envio.querySelector('select'), cant, info, recalcular };
       incBox.append(row);
     }
     const soloCesped = h('button.btn.small', { type: 'button', onclick: () => {
       for (const [id, f] of Object.entries(filas)) {
         if (id === 'cesped') continue;
         f.prov.value = 'cliente';
-        if (f.envio) f.envio.checked = false;
+        if (f.envio) f.envio.value = 'no';
       }
       refresh();
     } }, 'Solo césped');
@@ -2860,11 +2877,13 @@
     const leerInputs = () => {
       const v = UI.values(el);
       const incluye = {};
+      const envios = {};
       for (const [id, f] of Object.entries(filas)) {
-        incluye[id] = { provee: f.prov.value, envio: f.envio ? f.envio.checked : false };
+        incluye[id] = { provee: f.prov.value };
+        if (f.envio) envios[id] = f.envio.value;
         if (f.cant) { incluye[id].auto = f.cant.dataset.auto !== 'no'; if (!incluye[id].auto) incluye[id].cantidad = num(f.cant.value); }
       }
-      return { ...v, clienteColocaArena: v.clienteColocaArena === 'si', incluye };
+      return { ...v, clienteColocaArena: v.clienteColocaArena === 'si', incluye, envios };
     };
 
     const refresh = () => {
@@ -3376,7 +3395,7 @@
   }
 
   function seedDemo() {
-    cloud.seedOnce('v7', (put) => {
+    cloud.seedOnce('v8', (put) => {
       const t = UI.today();
       const d = (n) => UI.addDays(t, n);
       const DEL = 'administrativo@demo.slavon';
@@ -3417,8 +3436,8 @@
       const VEND = { melina: 'Melina', delfina: 'Delfina', juan: 'Juan' };
       for (const [k, nombre] of Object.entries(VEND)) put('vendedores', 'vd_' + k, { nombre, activo: true });
       put('vendedores', 'vd_tomas', { nombre: 'Tomás (ya no vende)', activo: false });
-      put('revendedores', 'rv_sur', { nombre: 'Deportes del Sur', comisionPct: 10, contactos: [{ id: 'c0', tipo: 'tel', valor: '11 5555 0300', quien: 'Gustavo' }], notas: '', activo: true });
-      put('revendedores', 'rv_rosario', { nombre: 'Canchas Rosario', comisionPct: 8, contactos: [], notas: 'Revende en Santa Fe.', activo: true });
+      put('revendedores', 'rv_sur', { nombre: 'Deportes del Sur', contactos: [{ id: 'c0', tipo: 'tel', valor: '11 5555 0300', quien: 'Gustavo' }], notas: '', activo: true });
+      put('revendedores', 'rv_rosario', { nombre: 'Canchas Rosario', contactos: [], notas: 'Revende en Santa Fe.', activo: true });
       put('proveedores', 'pv_polimetal', { nombre: 'Polimetal', cuit: '30-12345678-9', notas: 'Estructuras de pádel.', activo: true,
         cuentas: [{ id: 'pvc1', banco: 'Banco Galicia', titular: 'Polimetal SA', cbu: '0070000000000000000001', alias: 'polimetal.pagos', moneda: 'ARS' }] });
       put('proveedores', 'pv_fibras', { nombre: 'Fibras del Plata', cuit: '30-98765432-1', notas: '', activo: true,
@@ -3475,7 +3494,8 @@
           tipo: o.tipo, formato, cantidad: o.cantidad || 1, ancho: o.ancho, largo: o.largo, m2Padel: '', m2Manual: o.m2,
           cespedId: ex.cespedId || MODELOS[o.cespedModelo] || 'otro', cespedOtro: o.cespedModelo || '', color: o.bicolor ? 'bicolor' : 'mono', colores: o.colores,
           bicolorExtra: ex.bicolorExtra, demarcacion: o.demarcacion, mlExtra: ex.mlExtra, blancoManual: ex.blancoManual, clienteColocaArena: ex.clienteColocaArena,
-          incluye: { instalacion: { provee: o.conInstalacion === false ? 'cliente' : 'slavon' }, cesped: { envio: true }, ...(ex.incluye || {}) },
+          incluye: { instalacion: { provee: o.conInstalacion === false ? 'cliente' : 'slavon' }, ...(ex.incluye || {}) },
+          envios: { cesped: 'si', ...(ex.envios || {}) },
         });
         const { multisportResidencial, ...cancha } = k;
         const garantia = k.sinGarantia ? { garantiaAnios: 0, garantiaMeses: 0 } : {};
@@ -3515,7 +3535,7 @@
       obra('v3', { nombre: 'Casa Fernández – Jardín', tipo: 'residencial', m2: 90, ...cesp('Paisajismo 35 mm', 'verde'), conArena: false, conCaucho: false,
         ...cli('', 'Laura Fernández', ['tel', '11 5555 0103', 'Laura'], ['mail', 'laura.fernandez@demo.ar', 'Laura']),
         ubicacion: 'Adrogué, Buenos Aires', fechaVenta: d(-20), plazo: 'inmediata', fechaEntrega: d(5), estado: 'vendida', etapas: etapas('residencial', 0), checklist: check('residencial'), garantiaAnios: 2, garantiaMeses: 24 },
-      { precio: 2100, sena: 1050, senaFecha: d(-20), formaPago: 'contado' }, { senaForma: 'efectivo_usd', senaDestino: 'caja_usd', incluye: { cesped: { envio: false } } });
+      { precio: 2100, sena: 1050, senaFecha: d(-20), formaPago: 'contado' }, { senaForma: 'efectivo_usd', senaDestino: 'caja_usd', envios: { cesped: 'no' } });
       pago('v3', d(-1), 'ARS', 1648500, 1570, 'cuenta', 'atlantis');
       obra('v4', { nombre: 'Club Atlético Ituzaingó – Hockey', ...cancha('hockey', 55, 91.4, 0, 'doble'), ...cesp('Hockey arena 22 mm', 'azul'),
         ...cli('C. A. Ituzaingó', 'Comisión directiva', ['tel', '11 5555 0104', 'Sr. Benítez, presidente'], ['tel', '11 5555 0114', 'Tesorería']),
@@ -3526,7 +3546,7 @@
         ...cli('Padel Point SRL', '', ['tel', '341 555 0105', 'Oficina']), ubicacion: 'Rosario, Santa Fe', interior: true,
         logistica: window.OBRAS_LOGISTICA.map((texto, i) => ({ id: 'l' + i, texto, ok: false })), fechaVenta: d(-4), plazo: 'fabricacion', fechaEntrega: d(24), estado: 'vendida', etapas: etapas('padel_completa', 0), checklist: check('padel_completa') },
       { precio: 81000, sena: 40500, senaFecha: d(-4), formaPago: 'contado' },
-      { pedido: '1040', revendedor: { id: 'rv_rosario', nombre: 'Canchas Rosario', comisionPct: 8 }, senaForma: 'proveedor', senaDestino: 'polimetal',
+      { pedido: '1040', revendedor: { id: 'rv_rosario', nombre: 'Canchas Rosario', comisionMonto: 4000, comisionMoneda: 'USD' }, senaForma: 'proveedor', senaDestino: 'polimetal',
         iva: { tipo: 'total', monto: 14058 }, tributos: [{ id: 'tr1', nombre: 'Percepción IIBB', monto: 1215 }] });
       pago('v5', d(-2), 'ARS', 1570000, 1570, 'cheque', 'cartera', 'Lo rechazó el banco: avisar al cliente', {
         cheques: [{ id: 'ch1', numero: '00412233', aNombreDe: 'Padel Point SRL', banco: 'Banco Macro', fechaCobro: d(-1), monto: 1570000, estado: 'rechazado', cobradoFecha: '', cobradoTC: 0 }] });

@@ -17,7 +17,7 @@ Apps web internas de **SLAVON**. Cada app tiene su propio link, pero todas compa
 De la venta a la post-venta:
 
 1. **Venta** (administrativo):
-   - **Vendedor:** uno o varios, del catálogo. Si lo vendió un revendedor, se elige del catálogo y se ve la comisión (% editable en cada venta, monto sobre el presupuesto).
+   - **Vendedor:** uno o varios, del catálogo. Si lo vendió un revendedor, se elige del catálogo y se carga la comisión: un monto fijo por venta, en US$ o $.
    - **Cliente:** se elige del catálogo o se crea desde la misma pantalla (si ya hay uno parecido, avisa). Nombre de la persona y/o club (al menos uno), varios teléfonos y mails, cada uno con de quién es (ej: «Juan, dueño», «Pepe, encargado»), ubicación. Si se cambia un dato del cliente, se actualiza en todas sus obras.
    - **N° de pedido** (opcional, se puede buscar).
    - **Cancha, por tipo:**
@@ -32,7 +32,7 @@ De la venta a la post-venta:
      - Hockey y tenis: a mano.
      - Doble demarcación: ml extra a mano.
    - **Qué incluye:**
-     - Césped, blanco, arena, caucho, pegamento, cinta e instalación, cada uno con cantidad, quién lo provee y envío.
+     - Césped, blanco, arena, caucho, pegamento, cinta e instalación, cada uno con cantidad, quién lo provee y envío (Sí / No / A definir; lo puede completar Entregas).
      - Arena y caucho: kg = superficie × kg/m² del modelo, corregibles.
      - Botón «Solo césped».
      - Instalación a cargo del cliente: SIN GARANTÍA (garantía 0, queda en la venta y el acta).
@@ -54,8 +54,8 @@ De la venta a la post-venta:
    - **Financiado:** se puede entregar con el contrato firmado en nuestro poder; los pagos van cubriendo las cuotas en orden y se ve cuáles están vencidas.
    - **Aviso:** 7 días antes de la entrega avisa lo que falte.
    - **Buscador de clientes** en cada área: por nombre, club, obra, teléfono, mail o n° de pedido.
-   - **Catálogos** (*Más → Catálogos*): vendedores, revendedores (con su % de comisión), clientes, proveedores (con sus cuentas bancarias) y cuentas propias (W. MAX SRL, Atlantis, cajas de efectivo). No se borran: se dan de baja.
-3. **Entrega** (encargado de obra): cuadro «Materiales» (lo que lleva la obra y quién lo pone; el encargado carga cuánto pegamento y cinta), agenda de instalación con equipo (3 de AMBA + instaladores del interior) y aviso si un equipo queda en dos obras a la vez; duración sugerida (pádel completa 5 días por cancha, pádel césped 1). Flete, logística del interior (pasajes, estadía, comidas, ayudantes, viático), etapas con fotos, incidencias (ej: base no apta, con aviso al cliente) y checklist de entrega.
+   - **Catálogos** (*Más → Catálogos*): vendedores, revendedores, clientes, proveedores (con sus cuentas bancarias) y cuentas propias (W. MAX SRL, Atlantis, cajas de efectivo). No se borran: se dan de baja.
+3. **Entrega** (encargado de obra): cuadro «Materiales» (lo que lleva la obra y quién lo pone; el encargado carga cuánto pegamento y cinta y completa el envío), agenda de instalación con equipo (3 de AMBA + instaladores del interior) y aviso si un equipo queda en dos obras a la vez; duración sugerida (pádel completa 5 días por cancha, pádel césped 1). Flete, logística del interior (pasajes, estadía, comidas, ayudantes, viático), etapas con fotos, incidencias (ej: base no apta, con aviso al cliente) y checklist de entrega.
 4. **Acta de entrega** para imprimir o guardar en PDF y que firme el cliente: datos, controles, fotos y garantía.
 5. **Post-venta:** llamados al mes, a los 6 meses y al año, y control del vencimiento de la garantía.
 
@@ -112,9 +112,9 @@ HTML, CSS y JavaScript sin compilación. Firebase (Auth + Firestore) por CDN. La
   - Cliente: copia del cliente (`clienteId`, nombre, club, contactos) y n° de pedido.
   - Cancha: `formato` (F5…F11), medidas, `blanco` (demarcación, parámetros, desglose, m², pendiente), `cespedDet` (modelo del catálogo, altura, color), `m2`, `incluye` (cada ítem con cantidad, quién lo provee y envío), `sinGarantia`, `clienteColocaArena`, `conStock`.
   - `planos`: link, nombre y fecha; el archivo está en Storage, en `obras/{id}/planos/`.
-  - `materialesEntrega`: pegamento y cinta, los carga Entregas.
+  - `materialesEntrega`: pegamento y cinta, los carga Entregas. `envios`: envío de cada ítem (sí / no / a definir), lo completa Ventas o Entregas.
   - Operación: `etapas`, `checklist`, `incidencias`, `logistica`, `postventa`.
-- `ventas/{id de la obra}`: la plata, sólo admin y administración. Presupuesto, moneda, seña o anticipo pactado, forma de pago, cuotas, `iva` (sin factura / mínimo / total y monto), `tributos`, vendedores, revendedor y contrato.
+- `ventas/{id de la obra}`: la plata, sólo admin y administración. Presupuesto, moneda, seña o anticipo pactado, forma de pago, cuotas, `iva` (sin factura / mínimo / total y monto), `tributos`, vendedores, revendedor (con su comisión fija) y contrato.
   - `ventas/{id}/pagos/{id}`: cada pago (también la seña): fecha, moneda, monto, dólar, equivalente, valor en la moneda de la venta, forma, destino, cheques, comprobantes, registrado, factura, n° de recibo, historial.
   - `ventas/{id}/comprobantes/{id}`: archivo de cada comprobante.
 - Catálogos (sólo admin y administración, con `activo`): `vendedores`, `revendedores`, `clientes`, `proveedores` (con `cuentas`), `cuentas` (cuentas propias y cajas), `cespedes` (modelo, fábrica, deportes, altura, arena y caucho por m², blanco, multisport, bicolor, rollo).
