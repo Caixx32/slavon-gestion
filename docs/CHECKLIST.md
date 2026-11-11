@@ -12,7 +12,27 @@ Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado co
 - [x] **Catálogo de clientes**: alta de clientes para elegirlos de un desplegable y no tipear (evita duplicados y permite reportes).
 - [x] **Catálogo de proveedores**: alta de proveedores con sus cuentas bancarias (CBU/alias, banco, titular). Se usan en "Transferencia a proveedor".
 - [x] **Catálogo de cuentas propias**: W. MAX SRL, Atlantis, efectivo oficina, etc. Se usan en "Cuenta nuestra".
-- [ ] **Catálogo de césped** ❓: modelo, deporte(s) donde aplica, kg de arena por m², kg de caucho por m², si admite bicolor. Juan pasa la lista.
+- [ ] **Catálogo de césped** (editable en Más → Catálogos). Carga inicial:
+
+  | Modelo Slavon | Modelo fábrica | Deportes | Altura mm | Arena kg/m² | Caucho kg/m² | Blanco | Multisport | Rollo m |
+  |---|---|---|---|---|---|---|---|---|
+  | 44 profesional | 4278 | Fútbol | 44 | 40 | 4 | Sí | No | 4 |
+  | 52 amateur | 5075 | Fútbol | 52 | 40 | 6 | Sí | No | 4 |
+  | 52 profesional | 5090 | Fútbol | 52 | 40 | 6 | Sí | No | 4 |
+  | 52 premium | 50115 | Fútbol | 52 | 40 | 8 | Sí | No | 4 |
+  | Monofilamento fútbol | Monofilamento fútbol | Fútbol | 52 | 40 | 8 | Sí | No | 4 |
+  | Multisport premium | 25110 | Fútbol, Hockey, Tenis, Residencial | 25 | 40 | — | Sí | Sí | 4 |
+  | Multisport | 2585 | Fútbol, Hockey, Tenis, Residencial | 25 | 40 | — | Sí | Sí | 4 |
+  | Fibrilado pádel | 1380 | Pádel | 13 | 20 | — | — | No | 4 |
+  | Monotex pádel – nacional | Monofilamento texturado Atlantis | Pádel | 13 | 10 | — | — | No | 4 |
+  | Monotex pádel – importado | Monofilamento texturado importado | Pádel | 13 | 10 | — | — | No | 4 |
+  | Deco | Deco | Residencial | selector 20/30/40 | — | — | — | No | 4 |
+  | Fairway evolution | Fairway evolution | Residencial | 21 | — | — | — | No | 4 |
+  | Spring | Spring | Residencial | 28 | — | — | — | No | 4 |
+  | Non fill | Non fill | Residencial | — | — | — | — | No | 4 |
+
+  - Fútbol y multisport pueden ser bicolor. Pádel: variedad de colores.
+  - El desplegable de césped muestra solo los modelos del deporte elegido. Multisport ya no es tipo de cancha.
 - [x] **Formato de números en toda la app**: separador de miles con punto (10.000) y símbolo según moneda: **US$** dólares, **$** pesos.
 - [x] **Buscador** en Ventas y en Administración: por nombre de cliente, club, teléfono, mail y **n° de pedido**.
 
@@ -32,40 +52,63 @@ Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado co
 - [x] Elegir cliente existente desde el catálogo o crear uno nuevo desde la misma pantalla.
 
 ### Pedido
-- [x] Campo **n° de pedido** (opcional). _Hecho para el buscador; «Con stock» queda para después._
-- [ ] Tilde **"Con stock"** (sale de stock, no se fabrica).
+- [x] Campo **n° de pedido** (opcional), visible al lado del cliente o club.
 
 ### Tipo de cancha y césped
-- [x] Sacar **Multisport** como tipo de cancha. Pasa a ser una **opción de césped** dentro de fútbol, hockey o residencial.
-- [ ] **Tipo de césped**: desplegable con los modelos del deporte elegido (del catálogo). _Hecho con los modelos de la demo; falta el catálogo real ❓._
-- [ ] **Monocolor / bicolor**. Si es bicolor, aplicar fórmula de desperdicio ❓ (Juan pasa la fórmula). _El selector está; falta la fórmula._
+- [x] Sacar **Multisport** como tipo de cancha. Pasa a ser una **opción de césped** dentro de fútbol, hockey, tenis o residencial.
+- [ ] **Tipo de césped**: desplegable con los modelos del deporte elegido, del catálogo de césped (sección 0).
+- [ ] **Monocolor / bicolor**: fútbol y multisport pueden ser bicolor. Pádel: variedad de colores.
 
-### Medidas y m²
-- [ ] **Residencial**: no es cancha. Solo se cargan **m² a mano**, y el **plano es obligatorio** (la app pide adjuntarlo y no deja guardar sin él).
-- [x] **Fútbol** (y demás canchas): se cargan **ancho y largo**. m² = ancho × largo + blanco.
-- [ ] **Demarcación simple o doble**: selector que cambia el cálculo del blanco ❓. _El selector está; el blanco se carga a mano hasta tener la fórmula._
-- [ ] **Calculadora de blanco por tipo de cancha** ❓: muestra cuántos metros/m² de blanco lleva según el tipo de cancha y la demarcación, para verificar. Juan explica cómo se calcula.
+### Medidas y m² por tipo de cancha
+- [ ] **Residencial**: solo **m² a mano**, **plano obligatorio**, sin relleno.
+  - Excepción: **Multisport en residencial** lleva arena 40 kg/m². Mostrar «Lleva arena. Sin arena no tiene garantía» y tilde **«El cliente coloca la arena: Sí/No»** (queda en la venta y en el acta).
+- [ ] **Pádel**: se vende **por cancha**, blanco incluido, no se calcula blanco.
+- [ ] **Fútbol y hockey**: **ancho y largo**. m² totales = ancho × largo + m² de blanco (+ m² extra bicolor si aplica).
 
-### Materiales (automáticos según el césped)
-- [ ] **Arena**: kg necesarios = m² × kg/m² del modelo elegido. Se calcula solo y se puede corregir a mano.
-- [ ] **Caucho**: kg necesarios = m² × kg/m² del modelo. Se calcula solo y se puede corregir a mano. Si el modelo no tiene dato, la app lo marca como faltante.
-- [ ] **Qué incluye** ❓: definir si cada tilde (instalación, arena, caucho) significa "está incluido en el presupuesto" o "este césped en esta cancha lleva arena, caucho e instalación". Recomendación: separar las dos cosas: lo que **lleva** la cancha (lo calcula la app) y lo que **incluye el precio** (se tilda). _Hecho lo que incluye el precio: instalación sí/no; arena y caucho: los compra el cliente (los instalamos), los vendemos o no lleva. Falta lo que «lleva» calculado desde el catálogo de césped._
-- [ ] **Envío**: ¿incluido? Sí/No. Si es Sí, tildar de qué: **césped**, **pegamento**, **caucho**, **arena**, **todo**.
+### Blanco (césped blanco de las líneas)
+- [ ] Selector **demarcación simple / doble**.
+- [ ] **Parámetros editables** con default: separación al borde **s = 0,50 m**; **ancho de línea 8 cm**; **desperdicio 10 %**.
+- [ ] **Cálculo**:
+  - Perímetro = 2 × [(ancho − 2s) + (largo − 2s)]
+  - Línea del medio = ancho − 2s
+  - **F5**: + 26 ml (2 áreas de 3 × 7). **F7**: + 44 ml (2 áreas de 5,5 × 11).
+  - m² blanco = ml totales × ancho de línea × (1 + desperdicio). **Mostrar el desglose.**
+  - Ejemplo F5 15 × 30: 86 + 14 + 26 = 126 ml × 0,08 = 10,08 m² → **11,09 m²**.
+- [ ] **F8, F9, F11**: NO se calcula. Aviso **«Pedir blanco a Tomás»**, dato pendiente hasta que se cargue, **plano obligatorio**.
+- [ ] **Hockey**: m² de blanco **a mano**.
+- [ ] **Doble demarcación**: se calcula la principal y se suman **ml extra a mano** según plano. **Plano obligatorio**.
+
+### Bicolor
+- [ ] Por ahora, campo **«m² extra por desperdicio bicolor»** a mano.
+
+### Qué incluye
+- [ ] **Tabla de ítems**, cada uno con **cantidad**, **quién lo provee** (Slavon / Cliente) y **envío incluido** (Sí / No):
+  - **Césped**: m² calculados, siempre Slavon.
+  - **Blanco**.
+  - **Arena**: kg = m² × kg/m² del modelo.
+  - **Caucho**: ídem.
+  - **Pegamento** y **Cinta de unión**: la cantidad la carga Federico en Entregas; en Ventas solo quién lo provee.
+  - **Instalación**.
+- [ ] Arena y caucho **se calculan aunque los ponga el cliente**. Cantidades **corregibles a mano**.
+- [ ] Botón **«Solo césped»**: todo lo demás pasa a cargo del cliente.
+- [ ] Si **Instalación = Cliente → SIN GARANTÍA**: avisar, garantía en 0 y dejarlo escrito en la venta y en el acta.
 
 ### Plano
-- [ ] **Adjuntar plano** (PDF o imagen), uno o varios. Obligatorio en residencial. _Adjuntar ya funciona; falta que sea obligatorio en residencial._
+- [x] **Adjuntar plano** (PDF o imagen), uno o varios.
+- [ ] **Obligatorio** en residencial, doble demarcación y F8 en adelante.
 
 ### Plazo
-- [x] Mantener **inmediata (~5 días)** y **fabricación (20-30 días)**, y agregar **"Otro"** con campo para especificar.
+- [x] **Inmediata (~5 días)**, **fabricación (20-30 días)** y **«Otro»** con campo de texto.
+- [ ] Tilde **«Con stock»**.
 
-### Precio y forma de pago
+### Precio
 - [x] **Antes del precio**: elegir **contado** o **financiado**.
 - [x] Moneda del presupuesto: **US$** o **$**.
-- [ ] **Facturación**: elegir **IVA mínimo**, **IVA total** o **sin factura**. Mostrar cuánto del presupuesto corresponde a cada parte.
-- [x] **Financiado**: cargar anticipo → la app calcula las cuotas. Por defecto **11 cuotas, 1% mensual sobre el saldo** (editable):
-  `cuota = (presupuesto − anticipo) × (1 + 0,01 × 11) / 11`
+- [x] **Financiado**: anticipo → cuotas = (precio − anticipo) × (1 + 0,01 × 11) / 11. Default **11 cuotas y 1 % mensual**, ambos editables.
   Ejemplo: 10.000 − 2.000 = 8.000 → 8.000 × 1,11 / 11 = **807,27 por cuota**.
-- [x] Cargar **fecha de la 1ª cuota** y generar las siguientes mensuales (tabla con fecha y monto de cada cuota).
+- [x] **Fecha de la 1ª cuota** y siguientes mensuales, en tabla.
+- [ ] Debajo del precio: selector **IVA mínimo / IVA total** con **monto a mano** y leyenda **«Incluido en el precio total»** (no se suma).
+- [ ] Botón **«+ Agregar tributo»** (percepciones u otros: nombre y monto, también incluidos en el precio).
 - [x] **Garantía en años**, no en meses.
 
 ---
@@ -180,15 +223,19 @@ Cada pago guarda:
 ## Pendientes (no programar todavía)
 
 - [ ] **Recibo con el formato de Slavon** (Juan pasa el modelo).
+- [ ] **Fórmula del bicolor** (por ahora, m² extra a mano).
+- [ ] **Cálculo automático de pegamento y cinta de unión** (por ahora la cantidad la carga Federico en Entregas).
+- [ ] **Desglose automático del IVA** (por ahora, monto a mano).
+- [ ] **Blanco de F8, F9 y F11** (por ahora, «Pedir blanco a Tomás»).
 
 ---
 
 ## ❓ Datos que tiene que pasar Juan
 
-1. Cómo se calcula el **blanco**, por tipo de cancha y en **demarcación simple y doble**.
-2. Lista de **modelos de césped por deporte**, con **kg de arena/m²** y **kg de caucho/m²** de cada uno.
+1. ~~Cómo se calcula el blanco~~ → definido arriba (falta F8, F9 y F11: los pasa Tomás).
+2. ~~Lista de modelos de césped~~ → cargada arriba.
 3. **Fórmula de desperdicio** para bicolor.
-4. Qué significan las tildes de **instalación, arena y caucho**: "incluido en el precio" o "la cancha lo lleva".
+4. ~~Qué significan las tildes de instalación, arena y caucho~~ → definido en «Qué incluye».
 5. Lista inicial de **vendedores**, **revendedores** (con % de comisión), **proveedores con sus cuentas** y **cuentas propias**.
-6. Cómo se reparte **IVA mínimo / IVA total** sobre el presupuesto (porcentaje o monto fijo).
+6. Cómo se calcula **IVA mínimo / IVA total** sobre el presupuesto (por ahora, monto a mano).
 7. Nombres exactos de las planillas de Drive ("rosa en la planilla", "Caucho", "Pádel pedidos", "Clientes cerrados") y dónde están.
