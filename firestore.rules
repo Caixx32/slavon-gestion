@@ -66,6 +66,22 @@ service cloud.firestore {
       allow delete: if obrasAdmin();
     }
 
+    // Cobros de cada venta (parciales o totales, en dólares o pesos): sólo admin y administrativo.
+    // Un pago no se edita: si estuvo mal se anula (queda registrado quién y por qué). Borrar sólo admin.
+    match /pagos/{id} {
+      allow read: if obrasGestion();
+      allow create: if obrasGestion()
+        && request.resource.data.por == myEmail()
+        && request.resource.data.obraId is string
+        && request.resource.data.monto is number && request.resource.data.monto > 0
+        && request.resource.data.moneda in ['USD', 'ARS'];
+      allow update: if obrasGestion()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['anulado', 'anuladoPor', 'anuladoPorNombre', 'anuladoFecha', 'anuladoMotivo'])
+        && request.resource.data.anuladoPor == myEmail();
+      allow delete: if obrasAdmin();
+    }
+
+    // Fotos de la obra y planos adjuntos en la venta (tipo «plano»).
     match /fotos/{id} {
       allow read: if obrasMember();
       allow create: if obrasMember()
@@ -73,7 +89,8 @@ service cloud.firestore {
         && request.resource.data.obraId is string
         && request.resource.data.data is string
         && request.resource.data.data.size() < 900000;
-      allow delete: if obrasAdmin() || (obrasMember() && resource.data.por == myEmail());
+      allow delete: if obrasAdmin() || (obrasMember() && resource.data.por == myEmail())
+        || (obrasGestion() && resource.data.get('tipo', '') == 'plano');
       allow update: if false;
     }
 
