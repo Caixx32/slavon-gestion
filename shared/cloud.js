@@ -25,6 +25,8 @@ window.SGCloud = (() => {
     let fb = null;
     let auth = null;
     let db = null;
+    let fApp = null;
+    let st = null; // Storage (archivos: planos), se carga recién cuando hace falta
 
     async function init() {
       if (fb) return;
@@ -34,7 +36,7 @@ window.SGCloud = (() => {
         import(`${FIREBASE_CDN}/firebase-firestore.js`),
       ]);
       fb = { ...app, ...authMod, ...fs };
-      const fApp = fb.initializeApp(cfg.firebase);
+      fApp = fb.initializeApp(cfg.firebase);
       auth = fb.getAuth(fApp);
       auth.languageCode = 'es';
       db = fb.initializeFirestore(fApp, {
@@ -106,8 +108,31 @@ window.SGCloud = (() => {
       return p;
     }
 
+    // Archivos (planos) en Firebase Storage: en la base queda sólo el link, el nombre y la fecha.
+    async function storage() {
+      if (!st) {
+        const mod = await import(`${FIREBASE_CDN}/firebase-storage.js`);
+        st = { ...mod, s: mod.getStorage(fApp) };
+      }
+      return st;
+    }
+    async function upload(path, blob, contentType) {
+      const S = await storage();
+      const r = S.ref(S.s, path);
+      await S.uploadBytes(r, blob, { contentType });
+      return S.getDownloadURL(r);
+    }
+    async function fileURL(path) {
+      const S = await storage();
+      return S.getDownloadURL(S.ref(S.s, path));
+    }
+    async function removeFile(path) {
+      const S = await storage();
+      return S.deleteObject(S.ref(S.s, path));
+    }
+
     return {
-      init, onAuth, signIn, signOut: () => fb.signOut(auth), subscribe, subscribeDoc, subscribeGroup, nextNumber, write,
+      init, onAuth, signIn, signOut: () => fb.signOut(auth), subscribe, subscribeDoc, subscribeGroup, nextNumber, write, upload, fileURL, removeFile,
       newId: () => fb.doc(fb.collection(db, '_')).id,
       serverTime: () => fb.serverTimestamp(),
     };
@@ -159,6 +184,18 @@ window.SGCloud = (() => {
       return () => subs.delete(run);
     }
 
+    // Archivos en la demo: quedan en este navegador (hasta ~2 MB cada uno).
+    const archivos = () => col('_archivos');
+    async function upload(path, blob) {
+      const url = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = reject; r.readAsDataURL(blob); });
+      if (url.length > 2800000) throw new Error('en la demo los archivos pueden pesar hasta 2 MB');
+      archivos()[path] = url;
+      save();
+      return 'demo:' + path;
+    }
+    const fileURL = async (path) => archivos()[path] || '';
+    async function removeFile(path) { delete archivos()[path]; save(); }
+
     function nextNumber(key) {
       const c = col('config');
       c.contadores = c.contadores || {};
@@ -192,7 +229,7 @@ window.SGCloud = (() => {
       onAuth: (cb) => { setTimeout(() => cb(user()), 0); return () => {}; },
       signIn: async () => {},
       signOut: async () => { sessionStorage.removeItem('sg-demo'); location.href = location.pathname; },
-      subscribe, subscribeDoc, subscribeGroup, nextNumber, write,
+      subscribe, subscribeDoc, subscribeGroup, nextNumber, write, upload, fileURL, removeFile,
       newId: () => Math.random().toString(36).slice(2, 12) + Date.now().toString(36),
       serverTime: () => new Date().toISOString(),
       // Para cargar datos de ejemplo la primera vez.

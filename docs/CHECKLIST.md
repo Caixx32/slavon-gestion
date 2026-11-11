@@ -1,6 +1,6 @@
 # Checklist de cambios: App Obras Slavon
 
-Actualizado: 11/11/2026 · Fase 1 hecha (secciones 0, 1 «Vendedor» y «Datos del cliente», y 2).
+Actualizado: 11/11/2026 · Fase 1 hecha (secciones 0, 1 «Vendedor» y «Datos del cliente», y 2) · Fase 2 hecha (sección 1 completa y catálogo de césped).
 Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado con ❓ necesita datos de Juan antes de programarlo.
 
 ---
@@ -12,7 +12,7 @@ Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado co
 - [x] **Catálogo de clientes**: alta de clientes para elegirlos de un desplegable y no tipear (evita duplicados y permite reportes).
 - [x] **Catálogo de proveedores**: alta de proveedores con sus cuentas bancarias (CBU/alias, banco, titular). Se usan en "Transferencia a proveedor".
 - [x] **Catálogo de cuentas propias**: W. MAX SRL, Atlantis, efectivo oficina, etc. Se usan en "Cuenta nuestra".
-- [ ] **Catálogo de césped** (editable en Más → Catálogos). Carga inicial:
+- [x] **Catálogo de césped** (editable en Más → Catálogos). Carga inicial:
 
   | Modelo Slavon | Modelo fábrica | Deportes | Altura mm | Arena kg/m² | Caucho kg/m² | Blanco | Multisport | Rollo m |
   |---|---|---|---|---|---|---|---|---|
@@ -33,6 +33,7 @@ Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado co
 
   - Fútbol y multisport pueden ser bicolor. Pádel: variedad de colores.
   - El desplegable de césped muestra solo los modelos del deporte elegido. Multisport ya no es tipo de cancha.
+  - _Hecho: pestaña «Césped» en Catálogos con el botón «Cargar la lista inicial» y los valores por defecto del blanco y del pádel._
 - [x] **Formato de números en toda la app**: separador de miles con punto (10.000) y símbolo según moneda: **US$** dólares, **$** pesos.
 - [x] **Buscador** en Ventas y en Administración: por nombre de cliente, club, teléfono, mail y **n° de pedido**.
 
@@ -56,50 +57,50 @@ Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado co
 
 ### Tipo de cancha y césped
 - [x] Sacar **Multisport** como tipo de cancha. Pasa a ser una **opción de césped** dentro de fútbol, hockey, tenis o residencial.
-- [ ] **Tipo de césped**: desplegable con los modelos del deporte elegido, del catálogo de césped (sección 0).
-- [ ] **Monocolor / bicolor**: fútbol y multisport pueden ser bicolor. Pádel: variedad de colores.
+- [x] **Tipo de césped**: desplegable con los modelos del deporte elegido, del catálogo de césped (sección 0).
+- [x] **Monocolor / bicolor**: fútbol y multisport pueden ser bicolor. Pádel: variedad de colores.
 
 ### Medidas y m² por tipo de cancha
-- [ ] **Residencial**: solo **m² a mano**, **plano obligatorio**, sin relleno.
+- [x] **Residencial**: solo **m² a mano**, **plano obligatorio**, sin relleno.
   - Excepción: **Multisport en residencial** lleva arena 40 kg/m². Mostrar «Lleva arena. Sin arena no tiene garantía» y tilde **«El cliente coloca la arena: Sí/No»** (queda en la venta y en el acta).
-- [ ] **Pádel**: se vende **por cancha**, blanco incluido, no se calcula blanco.
-- [ ] **Fútbol y hockey**: **ancho y largo**. m² totales = ancho × largo + m² de blanco (+ m² extra bicolor si aplica).
+- [x] **Pádel**: se vende **por cancha**, blanco incluido, no se calcula blanco. _200 m² por cancha para calcular la arena, corregible._
+- [x] **Fútbol y hockey**: **ancho y largo**. m² totales = ancho × largo + m² de blanco (+ m² extra bicolor si aplica).
 
 ### Blanco (césped blanco de las líneas)
-- [ ] Selector **demarcación simple / doble**.
-- [ ] **Parámetros editables** con default: separación al borde **s = 0,50 m**; **ancho de línea 8 cm**; **desperdicio 10 %**.
-- [ ] **Cálculo**:
+- [x] Selector **demarcación simple / doble**.
+- [x] **Parámetros editables** con default: separación al borde **s = 0,50 m**; **ancho de línea 8 cm**; **desperdicio 10 %**.
+- [x] **Cálculo**:
   - Perímetro = 2 × [(ancho − 2s) + (largo − 2s)]
   - Línea del medio = ancho − 2s
   - **F5**: + 26 ml (2 áreas de 3 × 7). **F7**: + 44 ml (2 áreas de 5,5 × 11).
   - m² blanco = ml totales × ancho de línea × (1 + desperdicio). **Mostrar el desglose.**
   - Ejemplo F5 15 × 30: 86 + 14 + 26 = 126 ml × 0,08 = 10,08 m² → **11,09 m²**.
-- [ ] **F8, F9, F11**: NO se calcula. Aviso **«Pedir blanco a Tomás»**, dato pendiente hasta que se cargue, **plano obligatorio**.
-- [ ] **Hockey**: m² de blanco **a mano**.
-- [ ] **Doble demarcación**: se calcula la principal y se suman **ml extra a mano** según plano. **Plano obligatorio**.
+- [x] **F8, F9, F11**: NO se calcula. Aviso **«Pedir blanco a Tomás»**, dato pendiente hasta que se cargue, **plano obligatorio**.
+- [x] **Hockey**: m² de blanco **a mano**. _Tenis, igual que hockey._
+- [x] **Doble demarcación**: se calcula la principal y se suman **ml extra a mano** según plano. **Plano obligatorio**.
 
 ### Bicolor
-- [ ] Por ahora, campo **«m² extra por desperdicio bicolor»** a mano.
+- [x] Por ahora, campo **«m² extra por desperdicio bicolor»** a mano.
 
 ### Qué incluye
-- [ ] **Tabla de ítems**, cada uno con **cantidad**, **quién lo provee** (Slavon / Cliente) y **envío incluido** (Sí / No):
+- [x] **Tabla de ítems**, cada uno con **cantidad**, **quién lo provee** (Slavon / Cliente) y **envío incluido** (Sí / No):
   - **Césped**: m² calculados, siempre Slavon.
   - **Blanco**.
   - **Arena**: kg = m² × kg/m² del modelo.
   - **Caucho**: ídem.
-  - **Pegamento** y **Cinta de unión**: la cantidad la carga Federico en Entregas; en Ventas solo quién lo provee.
+  - **Pegamento** y **Cinta de unión**: la cantidad la carga Federico en Entregas; en Ventas solo quién lo provee. _Hecho: cuadro «Materiales» en la ficha de Entregas; los encargados editan sólo eso._
   - **Instalación**.
-- [ ] Arena y caucho **se calculan aunque los ponga el cliente**. Cantidades **corregibles a mano**.
-- [ ] Botón **«Solo césped»**: todo lo demás pasa a cargo del cliente.
-- [ ] Si **Instalación = Cliente → SIN GARANTÍA**: avisar, garantía en 0 y dejarlo escrito en la venta y en el acta.
+- [x] Arena y caucho **se calculan aunque los ponga el cliente**. Cantidades **corregibles a mano**.
+- [x] Botón **«Solo césped»**: todo lo demás pasa a cargo del cliente.
+- [x] Si **Instalación = Cliente → SIN GARANTÍA**: avisar, garantía en 0 y dejarlo escrito en la venta y en el acta.
 
 ### Plano
 - [x] **Adjuntar plano** (PDF o imagen), uno o varios.
-- [ ] **Obligatorio** en residencial, doble demarcación y F8 en adelante.
+- [x] **Obligatorio** en residencial, doble demarcación y F8 en adelante. _Se puede guardar la venta, pero queda «Falta plano» en rojo en listas y fichas y no pasa a Entregas hasta adjuntarlo. Los planos van a Firebase Storage; en la obra queda el link, el nombre y la fecha. Los ven también los encargados._
 
 ### Plazo
 - [x] **Inmediata (~5 días)**, **fabricación (20-30 días)** y **«Otro»** con campo de texto.
-- [ ] Tilde **«Con stock»**.
+- [x] Tilde **«Con stock»**.
 
 ### Precio
 - [x] **Antes del precio**: elegir **contado** o **financiado**.
@@ -107,8 +108,8 @@ Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado co
 - [x] **Financiado**: anticipo → cuotas = (precio − anticipo) × (1 + 0,01 × 11) / 11. Default **11 cuotas y 1 % mensual**, ambos editables.
   Ejemplo: 10.000 − 2.000 = 8.000 → 8.000 × 1,11 / 11 = **807,27 por cuota**.
 - [x] **Fecha de la 1ª cuota** y siguientes mensuales, en tabla.
-- [ ] Debajo del precio: selector **IVA mínimo / IVA total** con **monto a mano** y leyenda **«Incluido en el precio total»** (no se suma).
-- [ ] Botón **«+ Agregar tributo»** (percepciones u otros: nombre y monto, también incluidos en el precio).
+- [x] Debajo del precio: selector **IVA mínimo / IVA total** con **monto a mano** y leyenda **«Incluido en el precio total»** (no se suma). _Con la opción «Sin factura»._
+- [x] Botón **«+ Agregar tributo»** (percepciones u otros: nombre y monto, también incluidos en el precio).
 - [x] **Garantía en años**, no en meses.
 
 ---

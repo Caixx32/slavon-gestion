@@ -7,6 +7,7 @@ window.SG_CONFIG = {
     apiKey: 'COMPLETAR',
     authDomain: 'COMPLETAR',
     projectId: 'COMPLETAR',
+    storageBucket: 'COMPLETAR', // para los planos (Firebase Storage)
     appId: 'COMPLETAR',
   },
 

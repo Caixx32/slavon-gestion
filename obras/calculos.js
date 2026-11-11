@@ -4,9 +4,7 @@
  * Cuentas de la venta: números a la argentina, plata, m² de la cancha y plan de cuotas.
  * No toca la pantalla: se puede probar suelto con node (ver al final).
  *
- * PENDIENTE de definir con Slavon (mientras tanto se carga a mano):
- * - Cómo se calcula el blanco (m² de césped blanco para las líneas) con demarcación simple y doble → blanco().
- * - La fórmula del bicolor que contempla el desperdicio → bicolor().
+ * PENDIENTE (mientras tanto se carga a mano): la fórmula del bicolor y el blanco de F8, F9 y F11.
  */
 
 (function (root) {
@@ -61,20 +59,37 @@
 
   /* ---------- Medidas de la cancha ---------- */
 
-  // Blanco: m² de césped blanco que se suman al verde por las líneas.
-  // PENDIENTE: falta la fórmula de Slavon para demarcación simple y doble. Mientras devuelva null, se carga a mano.
-  function blanco(/* { tipo, ancho, largo, demarcacion } */) {
-    return null;
+  // m² de una cancha: ancho × largo + blanco (+ m² extra por bicolor).
+  const m2Cancha = ({ ancho, largo, blanco: b, bicolor: bi }) => round2(num(ancho) * num(largo) + num(b) + num(bi));
+
+  // ml de las áreas de cada formato de fútbol (2 áreas). F8, F9 y F11 no se calculan: los pasa Tomás.
+  const AREAS_ML = { F5: 26, F7: 44 }; // F5: 2 áreas de 3 × 7 · F7: 2 áreas de 5,5 × 11
+
+  /*
+   * Blanco (césped blanco de las líneas) de una cancha de fútbol.
+   * Perímetro = 2 × [(ancho − 2s) + (largo − 2s)] · Línea del medio = ancho − 2s · + áreas del formato
+   * + ml extra a mano (doble demarcación). m² = ml × ancho de línea × (1 + desperdicio).
+   * Ejemplo F5 15 × 30: 86 + 14 + 26 = 126 ml × 0,08 = 10,08 m² → 11,09 m².
+   * Devuelve null si el formato no se calcula (F8, F9, F11) o faltan las medidas.
+   */
+  function blancoFutbol({ formato, ancho, largo, s = 0.5, anchoLineaCm = 8, desperdicio = 10, mlExtra = 0 }) {
+    if (!(formato in AREAS_ML)) return null;
+    const a = num(ancho);
+    const l = num(largo);
+    if (!a || !l) return null;
+    const sep = num(s);
+    const perimetro = round2(2 * ((a - 2 * sep) + (l - 2 * sep)));
+    const medio = round2(a - 2 * sep);
+    const areas = AREAS_ML[formato];
+    const extra = round2(num(mlExtra));
+    const ml = round2(perimetro + medio + areas + extra);
+    const m2Neto = round2(ml * (num(anchoLineaCm) / 100));
+    const m2 = round2(m2Neto * (1 + num(desperdicio) / 100));
+    return { perimetro, medio, areas, extra, ml, m2Neto, m2 };
   }
 
-  // Bicolor: m² a pedir contemplando el desperdicio.
-  // PENDIENTE: falta la fórmula de Slavon. Mientras devuelva null, no se calcula.
-  function bicolor(/* { m2, ancho, largo } */) {
-    return null;
-  }
-
-  // m² de una cancha: ancho × largo + blanco.
-  const m2Cancha = ({ ancho, largo, blanco: b }) => round2(num(ancho) * num(largo) + num(b));
+  // Arena o caucho: kg = m² × kg/m² del modelo.
+  const kgMaterial = (m2, kgM2) => (num(kgM2) ? Math.round(num(m2) * num(kgM2)) : 0);
 
   /* ---------- Financiación ---------- */
 
@@ -178,7 +193,7 @@
   }
 
   const api = {
-    num, round2, fmtNum, money, formatTyping, addMonths, blanco, bicolor, m2Cancha, planCuotas, estadoCuotas, enMonedaVenta,
+    num, round2, fmtNum, money, formatTyping, addMonths, m2Cancha, blancoFutbol, kgMaterial, planCuotas, estadoCuotas, enMonedaVenta,
     equivalente, valorPago, aCobrarPago, enLetras,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -26,11 +26,10 @@
   let ventas = {};       // datos de plata por id de obra (sólo admin y administrativo)
   let pagosPorObra = {}; // cobros registrados, por id de obra (sólo admin y administrativo)
   // Catálogos (sólo admin y administrativo). Las bajas quedan con activo = false.
-  const cat = { vendedores: [], revendedores: [], clientes: [], proveedores: [], cuentas: [] };
+  const cat = { vendedores: [], revendedores: [], clientes: [], proveedores: [], cuentas: [], cespedes: [] };
   let users = [];
   let config = {};
   let fotos = [];        // fotos de la obra abierta
-  let planos = [];       // planos adjuntos de la obra abierta (se guardan junto a las fotos)
   let fotosObraId = null;
   let stopFotos = null;
   const ui = { obrasFiltro: 'en_curso', q: '', pvFiltro: 'pendientes', agendaMes: null };
@@ -141,13 +140,11 @@
     if (stopFotos) stopFotos();
     stopFotos = null;
     fotos = [];
-    planos = [];
     fotosObraId = obraId;
     if (obraId) {
       stopFotos = cloud.subscribe('fotos', (items) => {
         const todo = items.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
-        fotos = todo.filter((f) => f.tipo !== 'plano');
-        planos = todo.filter((f) => f.tipo === 'plano').reverse();
+        fotos = todo.filter((f) => f.tipo !== 'plano'); // los planos ahora van al almacenamiento de archivos
         if (['obra', 'acta'].includes(route()[0])) render();
       }, (e) => UI.toast(e.message), [['obraId', '==', obraId]]);
     }
@@ -231,7 +228,8 @@
   const clientePed = (o) => [o.cliente, pedidoTexto(o)].filter(Boolean).join(' · ');
   const pedidoChip = (o) => (o && o.pedido ? h('span.pedido', 'N° ' + o.pedido) : null);
   // Título de una obra en las listas: nombre (con el cliente o club) y el n° de pedido al lado.
-  const tituloObra = (o, extra) => h('div.titulo-obra', h('span.ellipsis', extra ? `${extra}${o.nombre}` : o.nombre), pedidoChip(o));
+  const tituloObra = (o, extra) => h('div.titulo-obra', h('span.ellipsis', extra ? `${extra}${o.nombre}` : o.nombre), pedidoChip(o),
+    faltaPlano(o) ? h('span.badge.red.chico', 'Falta plano') : null);
   // Obras viejas: el cliente estaba en un solo campo.
   const clienteNombreDe = (o) => (o.clienteNombre != null || o.club != null ? o.clienteNombre || '' : o.cliente || '');
   // Teléfonos y mails con de quién es cada uno. Las obras viejas tenían un solo teléfono.
@@ -242,31 +240,187 @@
 
   /* ----- Cancha y césped ----- */
 
-  const medidaDe = (tipo) => ((TIPOS[tipo] || TIPOS.otro).medida === 'cancha' ? 'cancha' : 'm2');
-  const cespedesDe = (tipo) => window.OBRAS_CESPEDES[(TIPOS[tipo] || {}).cesped] || [];
-  function cespedTexto({ cespedModelo, cespedOtro, bicolor, colores }) {
-    const modelo = cespedModelo || cespedOtro || '';
-    if (!modelo && !colores) return '';
-    return [modelo, bicolor ? 'bicolor' : modelo ? 'monocolor' : '', colores].filter(Boolean).join(' · ');
-  }
+  const medidaDe = (tipo) => (TIPOS[tipo] || TIPOS.otro).medida || 'm2';
   const m2Texto = (n) => (num(n) ? fmtNum(num(n)) + ' m²' : '');
+  const kgTexto = (n) => (num(n) ? fmtNum(num(n)) + ' kg' : '');
+  const defaultsBlanco = () => ({ ...window.OBRAS_DEFAULTS.blanco, ...((config && config.blanco) || {}) });
+  const padelM2Default = () => num(config && config.padelM2) || window.OBRAS_DEFAULTS.padelM2;
+  // Catálogo de césped: el cargado, o la lista inicial mientras no se cargó.
+  function cespedesCatalogo() {
+    if (cat.cespedes.length) return [...cat.cespedes].sort((a, b) => (num(a.orden) - num(b.orden)) || (a.nombre || '').localeCompare(b.nombre || ''));
+    return window.OBRAS_CESPEDES_INICIAL.map((x, i) => Object.defineProperty({ ...x, orden: i, activo: true }, '_id', { value: x.id, enumerable: false }));
+  }
+  const cespedDe = (id) => (id ? cespedesCatalogo().find((x) => x._id === id) || null : null);
+  // Modelos del deporte elegido (los dados de baja no, salvo el que ya tenía la obra).
+  function cespedesDe(tipo, actualId) {
+    const dep = (TIPOS[tipo] || {}).deporte;
+    if (!dep) return [];
+    return cespedesCatalogo().filter((x) => (x.activo !== false || x._id === actualId) && (x.deportes || []).includes(dep));
+  }
+  const PROVEE = { slavon: 'Slavon', cliente: 'Cliente' };
+
+  /*
+   * Todo lo de la cancha a partir de lo cargado en la venta: superficie, blanco, m² de césped, arena, caucho,
+   * qué incluye y garantía. Lo usan el formulario, las fichas, el acta y la demo, para que las cuentas den igual.
+   * d: { tipo, formato, cantidad, ancho, largo, m2Padel, m2Manual, cespedId, cespedOtro, altura, color, colores,
+   *      bicolorExtra, demarcacion, s, anchoLineaCm, desperdicio, mlExtra, blancoManual, clienteColocaArena, incluye }
+   */
+  function calcularCancha(d) {
+    const t = TIPOS[d.tipo] || TIPOS.otro;
+    const cantidad = Math.max(1, Math.round(num(d.cantidad)) || 1);
+    const modelo = d.cespedId && d.cespedId !== 'otro' ? cespedDe(d.cespedId) : null;
+    const def = defaultsBlanco();
+    const val = (x, porDefecto) => (x === undefined || x === null || x === '' ? porDefecto : num(x));
+    let ancho = 0;
+    let largo = 0;
+    let m2Padel = 0;
+    let superficie = 0; // por cancha
+    if (t.medida === 'cancha') { ancho = num(d.ancho); largo = num(d.largo); superficie = CALC.round2(ancho * largo); }
+    if (t.medida === 'padel') { m2Padel = val(d.m2Padel, padelM2Default()); superficie = m2Padel; }
+    const formato = d.tipo === 'futbol' ? (window.OBRAS_FORMATOS[d.formato] ? d.formato : 'F5') : '';
+
+    // Blanco (por cancha)
+    let blanco = { modo: t.blanco || 'no', demarcacion: '', m2: 0 };
+    if (blanco.modo === 'calculo' || blanco.modo === 'manual') {
+      blanco.demarcacion = d.demarcacion === 'doble' ? 'doble' : 'simple';
+      const calcula = blanco.modo === 'calculo' && window.OBRAS_FORMATOS[formato].calcula;
+      if (calcula) {
+        const p = { s: val(d.s, def.s), anchoLineaCm: val(d.anchoLineaCm, def.anchoLineaCm), desperdicio: val(d.desperdicio, def.desperdicio) };
+        const mlExtra = blanco.demarcacion === 'doble' ? num(d.mlExtra) : 0;
+        const r = CALC.blancoFutbol({ formato, ancho, largo, ...p, mlExtra });
+        blanco = { ...blanco, ...p, mlExtra, calculado: !!r, desglose: r, m2: r ? r.m2 : 0, pendiente: false };
+      } else {
+        const m = num(d.blancoManual);
+        // F8, F9, F11: el blanco lo pasa Tomás; queda pendiente hasta que se cargue.
+        blanco = { ...blanco, manual: true, m2: m, pendiente: blanco.modo === 'calculo' && !m, pedirATomas: blanco.modo === 'calculo' };
+      }
+    }
+    const admiteBicolor = modelo ? !!modelo.admiteBicolor : true;
+    const bicolor = admiteBicolor && d.color === 'bicolor';
+    const bicolorExtraM2 = bicolor ? num(d.bicolorExtra) : 0;
+
+    let m2PorCancha;
+    let m2;
+    let superficieTotal;
+    if (t.medida === 'm2') {
+      m2 = num(d.m2Manual);
+      m2PorCancha = m2;
+      superficieTotal = m2;
+    } else {
+      m2PorCancha = CALC.round2(superficie + num(blanco.m2) + bicolorExtraM2);
+      m2 = CALC.round2(m2PorCancha * cantidad);
+      superficieTotal = CALC.round2(superficie * cantidad);
+    }
+
+    // Qué incluye: cantidad, quién lo provee y envío. Arena y caucho se calculan aunque los ponga el cliente.
+    const inc0 = d.incluye || {};
+    const arenaKgM2 = modelo ? num(modelo.arenaKgM2) : 0;
+    const cauchoKgM2 = modelo ? num(modelo.cauchoKgM2) : 0;
+    const item = (id, base) => {
+      const x = { ...base, ...(inc0[id] || {}) };
+      x.aplica = base.aplica;
+      if (base.cantidadAuto !== undefined) x.cantidad = x.auto === false ? num(x.cantidad) : base.cantidadAuto;
+      delete x.cantidadAuto;
+      return x;
+    };
+    const incluye = {
+      cesped: { aplica: true, cantidad: m2, unidad: 'm²', provee: 'slavon', envio: !!(inc0.cesped && inc0.cesped.envio) },
+      blanco: item('blanco', { aplica: blanco.modo === 'calculo' || blanco.modo === 'manual', cantidadAuto: CALC.round2(num(blanco.m2) * cantidad), auto: true, unidad: 'm²', provee: 'slavon', envio: false }),
+      arena: item('arena', { aplica: arenaKgM2 > 0, cantidadAuto: CALC.kgMaterial(superficieTotal, arenaKgM2), auto: true, unidad: 'kg', provee: window.OBRAS_PROVEE.arena, envio: false }),
+      caucho: item('caucho', { aplica: cauchoKgM2 > 0, cantidadAuto: CALC.kgMaterial(superficieTotal, cauchoKgM2), auto: true, unidad: 'kg', provee: window.OBRAS_PROVEE.caucho, envio: false }),
+      pegamento: item('pegamento', { aplica: true, unidad: '', provee: 'slavon', envio: false }),
+      cinta: item('cinta', { aplica: true, unidad: '', provee: 'slavon', envio: false }),
+      instalacion: item('instalacion', { aplica: true, provee: 'slavon' }),
+    };
+    incluye.cesped.provee = 'slavon';
+    for (const k of ['blanco', 'arena', 'caucho']) if (incluye[k].auto === false && !num(incluye[k].cantidad)) incluye[k].auto = true;
+    const conInstalacion = incluye.instalacion.provee !== 'cliente';
+    // Multisport en residencial lleva arena: sin arena no tiene garantía.
+    const multisportResidencial = d.tipo === 'residencial' && !!(modelo && modelo.multisport);
+    const clienteColocaArena = multisportResidencial && !!d.clienteColocaArena;
+    const cesped = {
+      modeloId: modelo ? modelo._id : '', nombre: modelo ? modelo.nombre : (d.cespedOtro || '').trim(), modeloFabrica: modelo ? modelo.modeloFabrica || '' : '',
+      alturaMm: modelo ? (modelo.alturas && modelo.alturas.length ? num(d.altura) || modelo.alturas[0] : num(modelo.alturaMm) || 0) : 0,
+      color: bicolor ? 'bicolor' : 'mono', colores: (d.colores || '').trim(), multisport: !!(modelo && modelo.multisport),
+    };
+    return {
+      tipo: d.tipo, formato, cantidad, ancho, largo, m2Padel, superficie: superficieTotal, m2, m2PorCancha,
+      blanco, bicolorExtraM2, cespedDet: cesped,
+      cespedModelo: cesped.modeloId ? cesped.nombre : '', cespedOtro: cesped.modeloId ? '' : cesped.nombre, bicolor, colores: cesped.colores,
+      cesped: [cesped.nombre, cesped.alturaMm ? cesped.alturaMm + ' mm' : '', bicolor ? 'bicolor' : cesped.nombre ? 'monocolor' : '', cesped.colores].filter(Boolean).join(' · '),
+      incluye, multisportResidencial, clienteColocaArena,
+      sinGarantia: !conInstalacion,
+      demarcacion: blanco.demarcacion,
+      conInstalacion,
+      conArena: conInstalacion && incluye.arena.aplica && num(incluye.arena.cantidad) > 0 && !clienteColocaArena,
+      conCaucho: conInstalacion && incluye.caucho.aplica && num(incluye.caucho.cantidad) > 0,
+    };
+  }
+
+  // Lo cargado en una obra, como entrada de calcularCancha (también para obras viejas).
+  function datosCanchaDe(o) {
+    const b = o.blanco && typeof o.blanco === 'object' ? o.blanco : { m2: num(o.blanco) };
+    const cd = o.cespedDet || {};
+    let cespedId = cd.modeloId || '';
+    if (!cespedId && o.cespedModelo) { const m = cespedesCatalogo().find((x) => norm(x.nombre) === norm(o.cespedModelo)); if (m) cespedId = m._id; }
+    let incluye = o.incluye;
+    if (!incluye) { // obras viejas: instalación sí/no y arena/caucho 'cliente' | 'slavon' | 'no'
+      incluye = { instalacion: { provee: o.conInstalacion === false ? 'cliente' : 'slavon' } };
+      for (const m of ['arena', 'caucho']) if (['cliente', 'slavon'].includes(o[m])) incluye[m] = { provee: o[m] };
+    }
+    return {
+      tipo: o.tipo, formato: o.formato, cantidad: o.cantidad, ancho: o.ancho, largo: o.largo, m2Padel: o.m2Padel,
+      m2Manual: medidaDe(o.tipo) === 'm2' ? o.m2 : '', cespedId: cespedId || (cd.nombre || o.cespedOtro || o.cesped ? 'otro' : ''),
+      cespedOtro: cd.modeloId ? '' : cd.nombre || o.cespedOtro || (!cespedId ? o.cesped : '') || '', altura: cd.alturaMm, color: cd.color || (o.bicolor ? 'bicolor' : 'mono'),
+      colores: cd.colores ?? o.colores ?? '', bicolorExtra: o.bicolorExtraM2, demarcacion: b.demarcacion || o.demarcacion, s: b.s, anchoLineaCm: b.anchoLineaCm,
+      desperdicio: b.desperdicio, mlExtra: b.mlExtra, blancoManual: b.manual ? b.m2 : '', clienteColocaArena: o.clienteColocaArena, incluye,
+    };
+  }
+  // La cancha de una obra ya calculada (con lo guardado, sin recalcular cantidades corregidas a mano).
+  const canchaDe = (o) => calcularCancha(datosCanchaDe(o));
+
+  // «Pedir blanco a Tomás», plano obligatorio y demás avisos de la cancha.
+  const FORMATOS_SIN_CALCULO = ['F8', 'F9', 'F11'];
+  const requierePlano = (o) => o.tipo === 'residencial' || o.demarcacion === 'doble' || (o.tipo === 'futbol' && FORMATOS_SIN_CALCULO.includes(o.formato));
+  const faltaPlano = (o) => requierePlano(o) && !(o.planos || []).length;
+  function porQuePlano(o) {
+    if (o.tipo === 'residencial') return 'residencial';
+    if (o.demarcacion === 'doble') return 'doble demarcación';
+    return o.formato;
+  }
+
   function medidasTexto(o) {
-    if (medidaDe(o.tipo) !== 'cancha' || !num(o.ancho) || !num(o.largo)) return '';
-    return [`${fmtNum(num(o.ancho))} × ${fmtNum(num(o.largo))} m`, o.demarcacion ? `demarcación ${o.demarcacion}` : '', num(o.blanco) ? `blanco ${m2Texto(o.blanco)}` : ''].filter(Boolean).join(' · ');
-  }
-  // Arena y caucho: 'no' (no lleva) · 'cliente' (la compra el cliente) · 'slavon' (la vendemos nosotros).
-  // Si la obra tiene instalación, la instalamos nosotros en los dos casos.
-  function materialDe(o, m) {
-    if (['no', 'cliente', 'slavon'].includes(o[m])) return o[m];
+    const k = canchaDe(o);
     const t = TIPOS[o.tipo] || TIPOS.otro;
-    const lleva = m === 'arena' ? (o.conArena ?? t.arena) : (o.conCaucho ?? t.caucho);
-    return lleva ? window.OBRAS_PROVEE[m] : 'no';
+    if (t.medida === 'cancha' && k.ancho && k.largo) return [`${fmtNum(k.ancho)} × ${fmtNum(k.largo)} m`, k.formato].filter(Boolean).join(' · ');
+    if (t.medida === 'padel') return `${m2Texto(k.m2Padel)} por cancha`;
+    return '';
   }
-  function materialTexto(m, valor, conInstalacion) {
-    const fem = m === 'arena';
-    if (valor === 'no') return 'No lleva';
-    if (valor === 'cliente') return `${fem ? 'La' : 'Lo'} compra el cliente${conInstalacion ? `, ${fem ? 'la' : 'lo'} instalamos nosotros` : ''}`;
-    return `${fem ? 'La' : 'Lo'} vendemos nosotros${conInstalacion ? ` y ${fem ? 'la' : 'lo'} instalamos` : ' (sin instalar)'}`;
+  function blancoTexto(o) {
+    const b = canchaDe(o).blanco;
+    if (b.modo === 'incluido') return 'Incluido en la cancha';
+    if (b.modo === 'no') return '';
+    const dem = `demarcación ${b.demarcacion}`;
+    if (b.pedirATomas && b.pendiente) return `Pedir blanco a Tomás (pendiente) · ${dem}`;
+    if (b.manual) return [b.m2 ? `${m2Texto(b.m2)} por cancha (a mano)` : 'Sin cargar', dem].join(' · ');
+    if (!b.desglose) return `Cargá ancho y largo · ${dem}`;
+    const r = b.desglose;
+    return `${fmtNum(r.ml)} ml × ${fmtNum(b.anchoLineaCm)} cm + ${fmtNum(b.desperdicio)} % = ${m2Texto(r.m2)} por cancha · ${dem}`;
+  }
+  // Una línea por ítem de «qué incluye»: «Arena: 18.000 kg · la pone el cliente · sin envío».
+  function incluyeLineas(o, conEnvio = true) {
+    const k = canchaDe(o);
+    return window.OBRAS_INCLUYE.filter((it) => k.incluye[it.id] && k.incluye[it.id].aplica).map((it) => {
+      const x = k.incluye[it.id];
+      const cant = it.id === 'pegamento' || it.id === 'cinta' ? cantidadEntrega(o, it.id) : num(x.cantidad) ? `${fmtNum(num(x.cantidad))} ${x.unidad}` : '';
+      return { id: it.id, nombre: it.nombre, texto: [cant, it.id === 'instalacion' ? (x.provee === 'cliente' ? 'a cargo del cliente' : 'la hace Slavon') : `la provee ${x.provee === 'cliente' ? 'el cliente' : 'Slavon'}`,
+        conEnvio && !it.sinEnvio ? (x.envio ? 'con envío' : 'sin envío') : ''].filter(Boolean).join(' · '), cliente: x.provee === 'cliente' };
+    });
+  }
+  // Pegamento y cinta: la cantidad la carga Federico en Entregas.
+  function cantidadEntrega(o, id) {
+    const m = (o.materialesEntrega || {})[id];
+    return m && num(m.cantidad) ? `${fmtNum(num(m.cantidad))}${m.unidad ? ' ' + m.unidad : ''}` : 'cantidad a cargar en Entregas';
   }
   const plazoTexto = (o) => (o.plazo === 'otro' ? o.plazoOtro || 'Otro' : (window.OBRAS_PLAZOS[o.plazo] || {}).nombre || '');
 
@@ -589,7 +743,8 @@
       section('Listas para pasar a Entregas', listas.map((o) => h('div.item', { onclick: () => go('obra/' + o._id) },
         h('span.dot.done', icon('check')),
         h('div.grow', { style: { minWidth: 0 } }, tituloObra(o), h('div.small.muted', [esFinanciado(ventas[o._id]) ? 'Contrato firmado' : 'Saldo cobrado', 'entrega ' + UI.fmtDay(o.fechaEntrega)].join(' · '))),
-        h('button.btn.small.primary', { type: 'button', onclick: (e) => { e.stopPropagation(); habilitar(o); } }, 'Pasar a Entregas'))), 'Nada listo para pasar.'),
+        faltaPlano(o) ? h('button.btn.small', { type: 'button', onclick: (e) => { e.stopPropagation(); editObra(o); } }, 'Adjuntar plano')
+          : h('button.btn.small.primary', { type: 'button', onclick: (e) => { e.stopPropagation(); habilitar(o); } }, 'Pasar a Entregas'))), 'Nada listo para pasar.'),
       section('Urgentes', urgentes.map(pendRow), 'No hay entregas próximas con saldo o contrato pendiente.'),
       section('Pendientes, con entrega más adelante', resto.map(pendRow), 'No hay otras ventas pendientes.'));
   }
@@ -708,22 +863,45 @@
   }
 
   function datosCancha(o) {
+    const k = canchaDe(o);
+    const t = TIPOS[o.tipo] || TIPOS.otro;
     const medidas = medidasTexto(o);
-    const pl = planos.filter((p) => p.obraId === o._id);
+    const bl = blancoTexto(o);
+    const varias = k.cantidad > 1;
+    const lineas = incluyeLineas(o);
     return h('div.card.info',
-      infoRow('Tipo', [tipoNombre(o.tipo), num(o.cantidad) > 1 ? ` · ${o.cantidad} canchas` : '']),
-      medidas ? infoRow('Medidas', medidas + (num(o.cantidad) > 1 ? ' (cada cancha)' : '')) : null,
-      num(o.m2) ? infoRow('Superficie', m2Texto(o.m2) + (num(o.cantidad) > 1 ? ' en total' : '')) : null,
-      o.cesped ? infoRow('Césped', o.cesped) : null,
-      infoRow('Instalación', o.conInstalacion === false ? 'No incluida (sólo se entrega el césped)' : 'Incluida en el presupuesto'),
-      infoRow('Arena', materialTexto('arena', materialDe(o, 'arena'), o.conInstalacion !== false)),
-      infoRow('Caucho', materialTexto('caucho', materialDe(o, 'caucho'), o.conInstalacion !== false)),
-      pl.length ? infoRow(pl.length > 1 ? 'Planos' : 'Plano', h('div', pl.map((p) => h('div', h('a', { href: '#', onclick: (e) => { e.preventDefault(); verArchivo(p); } }, icon(p.mime === 'application/pdf' ? 'file' : 'eye'), ' ', p.nombre || 'Plano'))))) : null,
+      infoRow('Tipo', [tipoNombre(o.tipo), k.formato ? ` · ${window.OBRAS_FORMATOS[k.formato].nombre}` : '', varias ? ` · ${k.cantidad} canchas` : '']),
+      medidas ? infoRow('Medidas', medidas + (varias && t.medida === 'cancha' ? ' (cada cancha)' : '')) : null,
+      bl ? infoRow('Blanco', [h('div', bl), k.blanco.pedirATomas && k.blanco.pendiente ? h('span.badge.warn', 'Pedir blanco a Tomás') : null]) : null,
+      k.bicolorExtraM2 ? infoRow('Bicolor', `${m2Texto(k.bicolorExtraM2)} extra por desperdicio${varias ? ' (cada cancha)' : ''}`) : null,
+      num(k.m2) ? infoRow('Césped', [h('b', m2Texto(k.m2)), t.medida !== 'm2' && k.m2 !== k.superficie ? h('span.muted', ` · superficie ${m2Texto(k.superficie)}`) : null]) : null,
+      k.cesped ? infoRow('Modelo', [k.cesped, k.cespedDet.modeloFabrica && k.cespedDet.modeloFabrica !== k.cespedDet.nombre ? h('span.muted', ` (fábrica ${k.cespedDet.modeloFabrica})`) : null]) : null,
+      k.multisportResidencial ? infoRow('Arena', [h('div', 'Lleva arena. Sin arena no tiene garantía.'), h('div', { style: { fontWeight: 600 } }, k.clienteColocaArena ? 'El cliente coloca la arena.' : 'La arena la colocamos nosotros.')]) : null,
+      infoRow('Incluye', h('div', lineas.map((l) => h('div.incluye-ver', h('b', l.nombre + ': '), l.texto)))),
+      k.sinGarantia ? infoRow('Garantía', h('b', { style: { color: 'var(--red)' } }, 'SIN GARANTÍA: la instalación está a cargo del cliente.')) : null,
+      o.conStock ? infoRow('Stock', 'Sale de stock (no se fabrica)') : null,
+      infoRow((o.planos || []).length > 1 ? 'Planos' : 'Plano', [
+        ...(o.planos || []).map((p) => h('div', h('a', { href: '#', onclick: (e) => { e.preventDefault(); verPlano(p); } }, icon(p.mime === 'application/pdf' ? 'file' : 'eye'), ' ', p.nombre || 'Plano'),
+          h('span.small.muted', ` · ${UI.fmtDay((p.fecha || '').slice(0, 10))}`))),
+        faltaPlano(o) ? h('span.badge.red', `Falta el plano (obligatorio en ${porQuePlano(o)})`) : !(o.planos || []).length ? h('span.muted', 'Sin plano') : null]),
       o.consideraciones ? infoRow('Consideraciones', h('div', { style: { whiteSpace: 'pre-wrap' } }, o.consideraciones)) : null,
       infoRow('Cliente', [o.club ? h('div', h('b', o.club)) : null, o.clienteNombre ? h('div', o.clienteNombre) : null, !o.club && !o.clienteNombre ? h('div', o.cliente) : null, o.pedido ? h('div.small', h('span.pedido', { style: { marginLeft: 0 } }, pedidoTexto(o))) : null]),
       contactosDe(o).length ? infoRow('Contactos', contactosVer(o)) : null,
       o.ubicacion ? infoRow('Ubicación', h('a', { href: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(o.ubicacion), target: '_blank', rel: 'noopener' }, o.ubicacion, o.interior ? ' (interior)' : '')) : null,
       o.notas ? infoRow('Notas', h('div', { style: { whiteSpace: 'pre-wrap' } }, o.notas)) : null);
+  }
+
+  // Plano guardado en el almacenamiento de archivos: en la obra queda sólo el link, el nombre y la fecha.
+  async function verPlano(p) {
+    let url = p.url;
+    try { if (!url || url.startsWith('demo:')) url = await cloud.fileURL(p.path); } catch (e) { return UI.toast('No se pudo abrir el plano: ' + e.message, 5000); }
+    if (!url) return UI.toast('No se encontró el archivo del plano.', 5000);
+    if ((p.mime || '').startsWith('image/')) return UI.showPhoto(url, p.nombre);
+    if (url.startsWith('data:')) {
+      const blob = await (await fetch(url)).blob();
+      url = URL.createObjectURL(blob);
+    }
+    if (!window.open(url, '_blank')) location.href = url;
   }
 
   // Teléfonos y mails con de quién es cada uno, y botones para llamar, mandar WhatsApp o mail.
@@ -760,6 +938,7 @@
     const v = ventas[o._id] || {};
     const falta = faltanDatosVenta(o, v);
     return [
+      faltaPlano(o) ? h('div', { style: { marginBottom: '10px' } }, pasoBox(`Falta el plano (obligatorio en ${porQuePlano(o)}). Sin plano no pasa a Entregas.`, h('button.btn.primary.small', { type: 'button', onclick: () => editObra(o) }, 'Adjuntar plano'))) : null,
       o.estado === 'venta'
         ? pasoBox(falta.length ? `Faltan datos para pasar a Administración: ${falta.join(', ')}.` : 'La venta está completa.',
           h('button.btn.primary.small', { type: 'button', onclick: () => (falta.length ? editObra(o) : pasarAAdmin(o)) }, falta.length ? 'Completar' : 'Pasar a Administración'))
@@ -794,6 +973,8 @@
       h('div.card.info', { style: { marginTop: '10px' } },
         infoRow('Forma de pago', c.fin ? 'Financiado' : 'Contado'),
         infoRow('Presupuesto', c.precio ? [h('b', c.M(c.precio)), enPesos(c.precio)] : '—'),
+        infoRow('Factura', !v.iva || v.iva.tipo === 'sin' ? 'Sin factura' : [h('div', `${v.iva.tipo === 'total' ? 'IVA total' : 'IVA mínimo'}: ${c.M(num(v.iva.monto))}`), h('div.small.muted', 'Incluido en el precio total')]),
+        (v.tributos || []).length ? infoRow('Tributos', [...v.tributos.map((t) => h('div', `${t.nombre}: ${c.M(num(t.monto))}`)), h('div.small.muted', 'Incluidos en el precio total')]) : null,
         infoRow(`${senaTxt} pactad${c.fin ? 'o' : 'a'}`, c.sena ? [c.M(c.sena), v.senaFecha ? h('span.muted', ' · ' + UI.fmtDay(v.senaFecha)) : null] : '—'),
         c.sena ? infoRow(`Cobrado de ${senaTxt.toLowerCase()}`, c.senaCobrada ? c.M(c.senaCobrada) : 'Nada todavía') : null,
         c.sena ? infoRow(`Falta de ${senaTxt.toLowerCase()}`, c.senaFalta > 0.005 ? h('b', { style: { color: 'var(--red)' } }, c.M(c.senaFalta)) : h('span.badge.ok', c.fin ? 'Anticipo completo' : 'Seña completa')) : null,
@@ -1249,6 +1430,7 @@
     const d = o.fechaEntrega ? UI.daysUntil(o.fechaEntrega) : null;
     let paso = null;
     if (o.estado === 'venta') paso = pasoBox('Todavía está en Ventas: falta completar la venta.', null);
+    else if (enAdmin && condicionOk(o) && faltaPlano(o)) paso = pasoBox(`${fin ? 'Contrato firmado' : 'Saldo cobrado'}, pero falta el plano (obligatorio en ${porQuePlano(o)}): no puede pasar a Entregas.`, h('button.btn.primary.small', { type: 'button', onclick: () => editObra(o) }, 'Adjuntar plano'));
     else if (enAdmin && condicionOk(o)) paso = pasoBox(fin ? 'Contrato firmado. Ya se puede entregar.' : 'Saldo cobrado completo. Ya se puede entregar.', h('button.btn.primary.small', { type: 'button', onclick: () => habilitar(o) }, 'Pasar a Entregas'));
     else if (enAdmin) {
       paso = pasoBox(h('span', fin ? 'Falta el contrato firmado en nuestro poder.' : `Falta cobrar el saldo antes de la entrega de materiales: ${c.M(c.pendiente)}.`,
@@ -1283,6 +1465,8 @@
       !term && esCurso(o) ? h('div', { style: { margin: '12px 0 0' } }, progressBar(pct)) : null,
       h('h2', 'Agenda y equipo'),
       entregaCard(o),
+      h('div.row', h('h2.grow', 'Materiales'), !term ? h('button.btn.small', { type: 'button', onclick: () => editMateriales(o) }, icon('edit'), 'Pegamento y cinta') : null),
+      materialesCard(o),
       o.interior ? [h('h2', 'Logística del interior'), logisticaCard(o)] : null,
       h('div.row', h('h2.grow', 'Etapas'), h('button.btn.small.ghost', { type: 'button', onclick: () => editEtapas(o) }, icon('edit'), 'Editar')),
       (o.etapas || []).length ? h('div.list', (o.etapas || []).map((e, i) => etapaItem(o, e, i))) : h('div.card.empty.small', 'Sin etapas.'),
@@ -1384,6 +1568,7 @@
   }
 
   function habilitar(o, force) {
+    if (faltaPlano(o)) return UI.toast(`Falta el plano (obligatorio en ${porQuePlano(o)}): adjuntalo en «Editar» antes de pasar a Entregas.`, 5000);
     if (!force && !condicionOk(o)) return UI.toast(faltaTexto(o));
     const body = h('div',
       h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
@@ -1403,6 +1588,39 @@
   }
 
   /* ---------- Entrega, agenda y equipos ---------- */
+
+  // Materiales de la obra: lo calculado en la venta y, para pegamento y cinta, la cantidad que carga Entregas.
+  function materialesCard(o) {
+    const lineas = incluyeLineas(o).filter((l) => l.id !== 'instalacion');
+    return h('div.card.info', lineas.map((l) => infoRow(l.nombre, [h('div', l.texto), l.cliente ? h('span.badge.warn', 'Lo pone el cliente') : null])));
+  }
+
+  function editMateriales(o) {
+    const m0 = o.materialesEntrega || {};
+    const campos = [['pegamento', 'Pegamento', 'Ej: baldes, kg'], ['cinta', 'Cinta de unión', 'Ej: m, rollos']].map(([id, nombre, ph]) => {
+      const cant = UI.field({ label: `${nombre}: cantidad`, name: id + 'Cant', value: m0[id] && num(m0[id].cantidad) ? fmtNum(num(m0[id].cantidad)) : '' });
+      numeroInput(cant.querySelector('input'));
+      const uni = UI.field({ label: 'Unidad', name: id + 'Uni', value: (m0[id] && m0[id].unidad) || '', placeholder: ph });
+      return fila2(cant, uni);
+    });
+    const body = h('div', h('p.muted', { style: { marginTop: '-8px' } }, o.nombre), ...campos,
+      h('p.small.muted', 'Quién lo provee se define en la venta. Acá se carga cuánto lleva.'));
+    UI.sheet({
+      title: 'Pegamento y cinta',
+      body: [body],
+      actions: [{ label: 'Cancelar' }, {
+        label: 'Guardar', kind: 'primary', onClick: () => {
+          const v = UI.values(body);
+          const materialesEntrega = {
+            pegamento: { cantidad: num(v.pegamentoCant), unidad: v.pegamentoUni, porNombre: me.nombre, fecha: UI.today() },
+            cinta: { cantidad: num(v.cintaCant), unidad: v.cintaUni, porNombre: me.nombre, fecha: UI.today() },
+          };
+          cloud.patch('obras', o._id, { materialesEntrega, ...stamp() });
+          UI.toast('Guardado');
+        },
+      }],
+    });
+  }
 
   function entregaCard(o) {
     const sup = superpuestas(o, o.equipo, o.instInicio, o.instFin);
@@ -1771,8 +1989,8 @@
     const t = TIPOS[tipo] || TIPOS.otro;
     const list = !conInstalacion ? c.sinInstalacion : [
       ...c.comun,
-      ...((conArena ?? t.arena) ? c.arena : []),
-      ...((conCaucho ?? t.caucho) ? c.caucho : []),
+      ...(conArena ? c.arena : []),
+      ...(conCaucho ? c.caucho : []),
       ...(t.estructura ? c.estructura : []),
     ];
     return list.map((texto) => ({ id: uid(), texto, ok: false }));
@@ -1913,20 +2131,21 @@
           row('Cliente', clientePed(o)), row('Teléfono', telDe(o)), row('Obra', o.nombre), row('Ubicación', o.ubicacion))),
         h('h3', 'Trabajo entregado'),
         h('table.acta-table', h('tbody',
-          row('Tipo', tipoNombre(o.tipo) + (num(o.cantidad) > 1 ? ` · ${o.cantidad} canchas` : '')),
+          row('Tipo', tipoNombre(o.tipo) + (canchaDe(o).formato ? ` · ${window.OBRAS_FORMATOS[canchaDe(o).formato].nombre}` : '') + (num(o.cantidad) > 1 ? ` · ${o.cantidad} canchas` : '')),
           row('Medidas', medidasTexto(o)),
-          row('Superficie', m2Texto(o.m2)),
-          row('Césped', o.cesped),
-          row('Incluye', o.conInstalacion === false ? 'Provisión del césped, sin instalación' : 'Provisión e instalación del césped'),
-          materialDe(o, 'arena') !== 'no' ? row('Arena', materialTexto('arena', materialDe(o, 'arena'), o.conInstalacion !== false)) : null,
-          materialDe(o, 'caucho') !== 'no' ? row('Caucho', materialTexto('caucho', materialDe(o, 'caucho'), o.conInstalacion !== false)) : null,
+          row('Blanco', blancoTexto(o)),
+          row('Superficie de césped', m2Texto(canchaDe(o).m2)),
+          row('Césped', canchaDe(o).cesped),
+          row('Incluye', h('div', incluyeLineas(o, false).map((l) => h('div', `${l.nombre}: ${l.texto}`)))),
+          canchaDe(o).multisportResidencial ? row('Arena', canchaDe(o).clienteColocaArena ? 'El cliente coloca la arena. Sin arena no tiene garantía.' : 'La arena la colocamos nosotros. Sin arena no tiene garantía.') : null,
           row('Instalación', fechasInst(o)),
           row('Fecha de entrega', UI.fmtDay(fecha)))),
         h('h3', 'Controles de entrega'),
         h('ul.acta-check', (o.checklist || []).map((c) => h('li', { class: c.ok ? 'ok' : '' }, (c.ok ? '☑ ' : '☐ ') + c.texto))),
         fotosActa.length ? [h('h3', 'Fotos'), h('div.acta-fotos', fotosActa.map((f) => h('img', { src: 'data:image/jpeg;base64,' + f.data })))] : null,
         h('h3', 'Garantía y mantenimiento'),
-        h('p', vence ? `Garantía de ${garantiaTexto(o)} desde la fecha de entrega, válida hasta el ${UI.fmtDay(vence)}, según las condiciones del certificado de garantía.` : 'Garantía según las condiciones del certificado de garantía.',
+        canchaDe(o).sinGarantia ? h('p', h('b', 'SIN GARANTÍA: la instalación estuvo a cargo del cliente.')) : null,
+        canchaDe(o).sinGarantia ? null : h('p', vence ? `Garantía de ${garantiaTexto(o)} desde la fecha de entrega, válida hasta el ${UI.fmtDay(vence)}, según las condiciones del certificado de garantía.` : 'Garantía según las condiciones del certificado de garantía.',
           ' Se entregan al cliente el certificado de garantía y el manual de mantenimiento. El mantenimiento periódico indicado en el manual es condición para la garantía.'),
         h('h3', 'Observaciones'),
         editable((o.incidencias || []).filter((i) => !i.resuelta).map((i) => `${i.tipo}: ${i.detalle}`).join('\n') || 'Sin observaciones.'),
@@ -2091,6 +2310,7 @@
     clientes: { titulo: 'Clientes', uno: 'cliente' },
     proveedores: { titulo: 'Proveedores', uno: 'proveedor' },
     cuentas: { titulo: 'Cuentas propias', uno: 'cuenta' },
+    cespedes: { titulo: 'Césped', uno: 'modelo de césped' },
   };
   const catNombre = (k, x) => (k === 'clientes' ? clienteTexto(x.club, x.clienteNombre) : x.nombre) || 'Sin nombre';
   const obrasDeCliente = (id) => obras.filter((o) => o.clienteId === id);
@@ -2101,6 +2321,11 @@
       return [...(x.contactos || []).map((c) => c.valor), x.cuit ? 'CUIT ' + x.cuit : '', n ? (n === 1 ? '1 obra' : n + ' obras') : 'sin obras'].filter(Boolean).join(' · ');
     }
     if (k === 'proveedores') return (x.cuentas || []).map(cuentaProvTexto).join(' / ') || 'Sin cuentas cargadas';
+    if (k === 'cespedes') {
+      return [x.modeloFabrica && x.modeloFabrica !== x.nombre ? x.modeloFabrica : '', (x.deportes || []).map((d) => window.OBRAS_DEPORTES[d] || d).join(', '),
+        x.alturas && x.alturas.length ? x.alturas.join('/') + ' mm' : x.alturaMm ? x.alturaMm + ' mm' : '', num(x.arenaKgM2) ? `arena ${fmtNum(num(x.arenaKgM2))} kg/m²` : '',
+        num(x.cauchoKgM2) ? `caucho ${fmtNum(num(x.cauchoKgM2))} kg/m²` : '', x.admiteBicolor ? 'bicolor' : '', x.multisport ? 'multisport' : ''].filter(Boolean).join(' · ');
+    }
     if (k === 'cuentas') return [x.tipo === 'efectivo' ? 'Efectivo' : 'Banco', x.banco, x.alias || x.cbu, { ARS: 'en $', USD: 'en US$' }[x.moneda], x.pideFactura ? 'hay que ver la factura' : ''].filter(Boolean).join(' · ');
     return '';
   }
@@ -2119,7 +2344,7 @@
       ui.catQ[k] = search.value;
       const q = norm(search.value.trim());
       const items = cat[k].filter((x) => !q || norm([catNombre(k, x), catSub(k, x), x.notas, ...(x.contactos || []).map((c) => c.quien)].join(' ')).includes(q))
-        .sort((a, b) => catNombre(k, a).localeCompare(catNombre(k, b)));
+        .sort((a, b) => (k === 'cespedes' ? num(a.orden) - num(b.orden) : 0) || catNombre(k, a).localeCompare(catNombre(k, b)));
       const act = items.filter((x) => x.activo !== false);
       const baja = items.filter((x) => x.activo === false);
       list.replaceChildren(
@@ -2132,7 +2357,50 @@
       backBtn(),
       h('div.row', h('h1.grow', 'Catálogos'), h('button.btn.primary.small', { type: 'button', onclick: () => editCatalogo(k, null) }, icon('plus'), 'Agregar')),
       h('p.small.muted', 'Las listas que se usan al cargar ventas y pagos. Lo que se da de baja no se borra: deja de aparecer para elegir, pero las ventas viejas lo siguen mostrando.'),
-      seg, h('div', { style: { margin: '12px 0' } }, search), list);
+      seg, k === 'cespedes' ? cespedExtras() : null, h('div', { style: { margin: '12px 0' } }, search), list);
+  }
+
+  // Césped: valores por defecto del blanco y del pádel, y la carga inicial del catálogo.
+  function cespedExtras() {
+    const b = defaultsBlanco();
+    return [
+      !cat.cespedes.length ? h('div.paso', { style: { margin: '12px 0' } },
+        h('div.grow', 'Todavía no hay modelos cargados. Mientras tanto, la venta usa la lista inicial de Slavon.'),
+        h('button.btn.primary.small', { type: 'button', onclick: cargarCespedesInicial }, 'Cargar la lista inicial')) : null,
+      h('div.card.row', { style: { margin: '12px 0', gap: '10px' } },
+        h('div.grow', h('b', 'Valores por defecto'), h('div.small.muted', `Blanco: separación al borde ${fmtNum(b.s)} m · línea ${fmtNum(b.anchoLineaCm)} cm · desperdicio ${fmtNum(b.desperdicio)} % · Pádel: ${m2Texto(padelM2Default())} por cancha`)),
+        h('button.btn.small', { type: 'button', onclick: editDefaultsCesped }, icon('edit'), 'Cambiar')),
+    ];
+  }
+
+  function cargarCespedesInicial() {
+    const ops = window.OBRAS_CESPEDES_INICIAL.map(({ id, ...x }, i) => ({ op: 'set', col: 'cespedes', id, data: { ...x, orden: i, activo: true, notas: '', ...stamp() } }));
+    cloud.write(ops);
+    UI.toast(`Se cargaron ${ops.length} modelos de césped`);
+  }
+
+  function editDefaultsCesped() {
+    const b = defaultsBlanco();
+    const f = (label, name, value) => { const x = UI.field({ label, name, value: fmtNum(value) }); numeroInput(x.querySelector('input')); return x; };
+    const body = h('div',
+      h('div.field-title', 'Blanco'),
+      fila2(f('Separación al borde (m)', 's', b.s), f('Ancho de línea (cm)', 'anchoLineaCm', b.anchoLineaCm)),
+      f('Desperdicio (%)', 'desperdicio', b.desperdicio),
+      h('div.field-title', 'Pádel'),
+      f('m² por cancha', 'padelM2', padelM2Default()),
+      h('p.small.muted', 'Se usan en las ventas nuevas. En cada venta se pueden cambiar.'));
+    UI.sheet({
+      title: 'Valores por defecto',
+      body: [body],
+      actions: [{ label: 'Cancelar' }, {
+        label: 'Guardar', kind: 'primary', onClick: () => {
+          const v = UI.values(body);
+          if (!(num(v.anchoLineaCm) > 0) || !(num(v.padelM2) > 0)) throw new Error('Revisá los valores.');
+          cloud.put('config', 'obras', { ...config, blanco: { s: num(v.s), anchoLineaCm: num(v.anchoLineaCm), desperdicio: num(v.desperdicio) }, padelM2: num(v.padelM2), ...stamp() });
+          UI.toast('Guardado');
+        },
+      }],
+    });
   }
 
   // Cuentas bancarias de un proveedor: banco, titular, CBU, alias y moneda.
@@ -2185,6 +2453,20 @@
         notasF,
         os.length ? h('div.field', h('span', 'Obras'), h('div.list', os.map((o) => h('div.item', { onclick: () => { document.querySelectorAll('dialog.sheet[open]').forEach((dl) => dl.close()); go('obra/' + o._id); } }, h('div.grow.ellipsis', o.nombre), h('span.badge', AREAS[areaDe(o)].nombre))))) : null,
       ];
+    } else if (k === 'cespedes') {
+      const n = (label, name, value, ph) => { const x = UI.field({ label, name, value: value != null && value !== '' ? fmtNum(num(value)) : '', placeholder: ph || '' }); numeroInput(x.querySelector('input')); return x; };
+      const deps = h('div.row.wrap', { style: { gap: '0 16px' } }, Object.entries(window.OBRAS_DEPORTES).map(([id, nombre]) =>
+        h('label.check', h('input', { type: 'checkbox', name: 'dep_' + id, checked: (d.deportes || []).includes(id) }), nombre)));
+      campos = [
+        fila2(UI.field({ label: 'Modelo Slavon', name: 'nombre', value: d.nombre || '', required: true }), UI.field({ label: 'Modelo de fábrica', name: 'modeloFabrica', value: d.modeloFabrica || '' })),
+        h('div.field', h('span', 'Deportes'), deps),
+        fila2(UI.field({ label: 'Altura (mm)', name: 'altura', value: d.alturas && d.alturas.length ? d.alturas.join('/') : d.alturaMm ? String(d.alturaMm) : '', placeholder: 'Ej: 52 · o 20/30/40 para elegir' }), n('Rollo (m)', 'rolloM', d.rolloM ?? 4)),
+        fila2(n('Arena (kg/m²)', 'arenaKgM2', d.arenaKgM2, 'Vacío = no lleva'), n('Caucho (kg/m²)', 'cauchoKgM2', d.cauchoKgM2, 'Vacío = no lleva')),
+        h('label.check', h('input', { type: 'checkbox', name: 'blanco', checked: !!d.blanco }), 'Viene en blanco (para las líneas)'),
+        h('label.check', h('input', { type: 'checkbox', name: 'multisport', checked: !!d.multisport }), 'Es multisport'),
+        h('label.check', h('input', { type: 'checkbox', name: 'admiteBicolor', checked: !!d.admiteBicolor }), 'Puede ser bicolor'),
+        notasF,
+      ];
     } else if (k === 'proveedores') {
       extra = cuentasProvEditor(d.cuentas || []);
       campos = [nombreF, UI.field({ label: 'CUIT', name: 'cuit', value: d.cuit || '', inputMode: 'numeric' }), extra.el, notasF];
@@ -2212,6 +2494,17 @@
         data = { nombre: v.nombre };
         if (k === 'revendedores') Object.assign(data, { comisionPct: num(v.comisionPct), contactos: extra.leer(), notas: v.notas });
         if (k === 'proveedores') Object.assign(data, { cuit: v.cuit, cuentas: extra.leer(), notas: v.notas });
+        if (k === 'cespedes') {
+          const deportes = Object.keys(window.OBRAS_DEPORTES).filter((id) => v['dep_' + id]);
+          if (!deportes.length) throw new Error('Marcá al menos un deporte.');
+          const alts = String(v.altura || '').split(/[\/,\s]+/).map((x) => num(x)).filter((x) => x > 0);
+          Object.assign(data, {
+            modeloFabrica: v.modeloFabrica, deportes, alturaMm: alts.length === 1 ? alts[0] : null, alturas: alts.length > 1 ? alts : [],
+            arenaKgM2: v.arenaKgM2 === '' ? null : num(v.arenaKgM2), cauchoKgM2: v.cauchoKgM2 === '' ? null : num(v.cauchoKgM2),
+            blanco: !!v.blanco, multisport: !!v.multisport, admiteBicolor: !!v.admiteBicolor, rolloM: num(v.rolloM) || 4, notas: v.notas,
+            orden: x ? x.orden ?? cat.cespedes.length : cat.cespedes.length,
+          });
+        }
         if (k === 'cuentas') Object.assign(data, { tipo: v.tipo, moneda: v.moneda, banco: v.banco, titular: v.titular, cbu: v.cbu, alias: v.alias, pideFactura: v.pideFactura, notas: v.notas });
       }
       const id = x ? x._id : cloud.newId();
@@ -2452,27 +2745,304 @@
     return { el: h('div.field', h('span', label), list, h('button.btn.small', { type: 'button', onclick: agregar }, icon('clip'), boton)), nuevos, quitados };
   }
 
-  // Planos adjuntos de la venta (se guardan junto a las fotos de la obra, con tipo «plano»).
-  function planosEditor(o) {
-    const ed = adjuntosEditor({ existentes: o ? planos.filter((p) => p.obraId === o._id) : [], label: 'Plano', boton: 'Adjuntar plano (foto o PDF)', ver: verArchivo });
-    return {
-      el: ed.el,
-      ops: (obraId) => [
-        ...ed.nuevos.map((a) => ({ op: 'set', col: 'fotos', id: cloud.newId(), data: { ...a, obraId, tipo: 'plano', etapaId: '', nota: '', por: me.email, porNombre: me.nombre, fecha: new Date().toISOString(), en: cloud.serverTime() } })),
-        ...[...ed.quitados].map((id) => ({ op: 'delete', col: 'fotos', id })),
-      ],
+  /*
+   * La cancha en la venta: tipo, formato, medidas, césped del catálogo, blanco (con su desglose),
+   * bicolor y qué incluye. onCambio(k) avisa cada vez que cambia algo (para la garantía y el plano).
+   */
+  function canchaEditor(o, onCambio) {
+    const d0 = o ? datosCanchaDe(o) : { tipo: 'futbol', formato: 'F5', cantidad: 1, demarcacion: 'simple', color: 'mono', incluye: {} };
+    const def = defaultsBlanco();
+    const n0 = (x) => (num(x) ? fmtNum(num(x)) : '');
+    const sel = (name, value, options) => UI.field({ label: '', name, type: 'select', value, options });
+    const tiposOpts = Object.entries(TIPOS).filter(([k, t]) => !t.oculto || k === d0.tipo).map(([k, t]) => [k, t.nombre]);
+
+    const tipoF = UI.field({ label: 'Tipo', name: 'tipo', type: 'select', value: d0.tipo, options: tiposOpts });
+    const cantF = UI.field({ label: 'Canchas', name: 'cantidad', type: 'number', inputMode: 'numeric', value: d0.cantidad || 1 });
+    const formatoF = UI.field({ label: 'Formato', name: 'formato', type: 'select', value: d0.formato || 'F5', options: Object.entries(window.OBRAS_FORMATOS).map(([k, f]) => [k, `${k} · ${f.nombre}`]) });
+    const anchoF = UI.field({ label: 'Ancho (m)', name: 'ancho', value: n0(d0.ancho) });
+    const largoF = UI.field({ label: 'Largo (m)', name: 'largo', value: n0(d0.largo) });
+    const padelF = UI.field({ label: 'm² por cancha', name: 'm2Padel', value: n0(d0.m2Padel) || fmtNum(padelM2Default()) });
+    const m2F = UI.field({ label: 'm²', name: 'm2Manual', value: n0(d0.m2Manual) });
+    const cespedF = UI.field({ label: 'Tipo de césped', name: 'cespedId', type: 'select', value: '', options: [] });
+    const cespedOtroF = UI.field({ label: 'Cuál', name: 'cespedOtro', value: d0.cespedOtro || '', placeholder: 'Modelo y altura' });
+    const alturaF = UI.field({ label: 'Altura', name: 'altura', type: 'select', value: '', options: [] });
+    const colorF = UI.field({ label: 'Color', name: 'color', type: 'select', value: d0.color || 'mono', options: [['mono', 'Monocolor'], ['bicolor', 'Bicolor']] });
+    const coloresF = UI.field({ label: 'Colores', name: 'colores', value: d0.colores || '', placeholder: 'Ej: verde y blanco' });
+    const bicolorF = UI.field({ label: 'm² extra por desperdicio bicolor', name: 'bicolorExtra', value: n0(d0.bicolorExtra), placeholder: 'A mano, por cancha' });
+    const colocaF = UI.field({ label: 'El cliente coloca la arena', name: 'clienteColocaArena', type: 'select', value: d0.clienteColocaArena ? 'si' : 'no', options: [['no', 'No'], ['si', 'Sí']] });
+    const demF = UI.field({ label: 'Demarcación', name: 'demarcacion', type: 'select', value: d0.demarcacion || 'simple', options: [['simple', 'Simple'], ['doble', 'Doble']] });
+    const sF = UI.field({ label: 'Separación al borde (m)', name: 's', value: d0.s != null && d0.s !== '' ? fmtNum(num(d0.s)) : fmtNum(def.s) });
+    const lineaF = UI.field({ label: 'Ancho de línea (cm)', name: 'anchoLineaCm', value: d0.anchoLineaCm != null && d0.anchoLineaCm !== '' ? fmtNum(num(d0.anchoLineaCm)) : fmtNum(def.anchoLineaCm) });
+    const despF = UI.field({ label: 'Desperdicio (%)', name: 'desperdicio', value: d0.desperdicio != null && d0.desperdicio !== '' ? fmtNum(num(d0.desperdicio)) : fmtNum(def.desperdicio) });
+    const mlExtraF = UI.field({ label: 'ml extra de la otra demarcación (según plano)', name: 'mlExtra', value: n0(d0.mlExtra) });
+    const blancoManualF = UI.field({ label: 'Blanco (m² por cancha)', name: 'blancoManual', value: n0(d0.blancoManual) });
+    [anchoF, largoF, padelF, m2F, bicolorF, sF, lineaF, despF, mlExtraF, blancoManualF].forEach((f) => numeroInput(f.querySelector('input')));
+    const q = (f) => f.querySelector('input,select');
+    const wrap = (...x) => h('div', ...x);
+
+    const tomasNota = h('div.aviso', 'F8, F9 y F11: el blanco no se calcula. Pedir blanco a Tomás y cargarlo cuando lo pase. El plano es obligatorio.');
+    const desglose = h('div.calc');
+    const paramsBox = h('details.parametros', h('summary.small', 'Parámetros del blanco (separación, ancho de línea, desperdicio)'), fila2(sF, lineaF), despF);
+    const blancoBox = h('div.cancha-bloque',
+      h('div.field-title', 'Blanco (césped blanco de las líneas)'),
+      demF, tomasNota, wrap(blancoManualF), paramsBox, wrap(mlExtraF), desglose);
+    const multiNota = h('div.aviso', 'Multisport en residencial lleva arena (40 kg/m²). Sin arena no tiene garantía.');
+    const multiBox = h('div', multiNota, colocaF);
+    const m2Box = h('div.calc');
+
+    // Qué incluye: una fila por ítem con cantidad, quién lo provee y envío.
+    const filas = {};
+    const incBox = h('div.list.incluye');
+    for (const it of window.OBRAS_INCLUYE) {
+      const x0 = (d0.incluye || {})[it.id] || {};
+      const prov = sel(`inc_${it.id}_provee`, it.id === 'cesped' ? 'slavon' : x0.provee || (it.id === 'arena' || it.id === 'caucho' ? window.OBRAS_PROVEE[it.id] : 'slavon'), [['slavon', it.id === 'instalacion' ? 'La hace Slavon' : 'Slavon'], ['cliente', it.id === 'instalacion' ? 'A cargo del cliente' : 'Cliente']]);
+      if (it.id === 'cesped') q(prov).disabled = true;
+      const envio = it.sinEnvio ? null : h('label.check.envio', h('input', { type: 'checkbox', name: `inc_${it.id}_envio`, checked: !!x0.envio }), 'Envío');
+      let cant = null;
+      let recalcular = null;
+      if (it.id === 'arena' || it.id === 'caucho') {
+        cant = numeroInput(h('input', { name: `inc_${it.id}_cantidad`, value: x0.auto === false && num(x0.cantidad) ? fmtNum(num(x0.cantidad)) : '', 'aria-label': `${it.nombre} (kg)` }));
+        cant.dataset.auto = x0.auto === false ? 'no' : 'si';
+        cant.addEventListener('input', () => { cant.dataset.auto = cant.value ? 'no' : 'si'; });
+        recalcular = h('button.btn.small.ghost', { type: 'button', onclick: () => { cant.dataset.auto = 'si'; refresh(); } }, 'Recalcular');
+      }
+      const info = h('span.small.muted');
+      const row = h('div.item.incluye-row', { style: { cursor: 'default' } },
+        h('div.incluye-a', h('b', it.nombre), cant ? h('span.incluye-cant', cant, h('span.small.muted', ' kg')) : null, info, recalcular),
+        h('div.incluye-b', prov, envio));
+      filas[it.id] = { row, prov: q(prov), envio: envio && envio.querySelector('input'), cant, info, recalcular };
+      incBox.append(row);
+    }
+    const soloCesped = h('button.btn.small', { type: 'button', onclick: () => {
+      for (const [id, f] of Object.entries(filas)) {
+        if (id === 'cesped') continue;
+        f.prov.value = 'cliente';
+        if (f.envio) f.envio.checked = false;
+      }
+      refresh();
+    } }, 'Solo césped');
+    const sinGarantiaNota = h('div.aviso.rojo', 'SIN GARANTÍA: la instalación está a cargo del cliente. La garantía queda en 0 y se deja escrito en la venta y en el acta.');
+
+    const el = h('div',
+      h('div.row', { style: { gap: '10px', alignItems: 'flex-start' } }, h('div.grow', tipoF), h('div', { style: { width: '30%' } }, cantF)),
+      wrap(formatoF),
+      wrap(fila2(anchoF, largoF)),
+      wrap(padelF),
+      wrap(m2F),
+      cespedF, wrap(cespedOtroF), wrap(alturaF),
+      wrap(fila2(colorF, coloresF)), wrap(bicolorF),
+      multiBox,
+      blancoBox,
+      m2Box,
+      h('div.row', { style: { margin: '6px 0 8px' } }, h('div.field-title.grow', { style: { margin: 0 } }, 'Qué incluye'), soloCesped),
+      incBox,
+      sinGarantiaNota);
+
+    const cespedSel = q(cespedF);
+    const tipoSel = q(tipoF);
+    const llenarCesped = () => {
+      const lista = cespedesDe(tipoSel.value, d0.cespedId);
+      const actual = cespedSel.value || d0.cespedId || '';
+      const elegido = lista.some((x) => x._id === actual) ? actual : actual === 'otro' || !lista.length ? 'otro' : lista[0]._id;
+      cespedSel.replaceChildren(...lista.map((x) => h('option', { value: x._id }, x.nombre + (x.alturaMm ? ` · ${x.alturaMm} mm` : ''))),
+        h('option', { value: 'otro' }, lista.length ? 'Otro (especificar)' : 'Escribir el modelo'));
+      cespedSel.value = elegido;
     };
+    const llenarAltura = () => {
+      const m = cespedDe(cespedSel.value);
+      const alturas = (m && m.alturas) || [];
+      const a = q(alturaF);
+      const actual = num(a.value) || num(d0.altura);
+      a.replaceChildren(...alturas.map((x) => h('option', { value: x }, x + ' mm')));
+      if (alturas.length) a.value = alturas.includes(actual) ? actual : alturas[0];
+    };
+
+    const leerInputs = () => {
+      const v = UI.values(el);
+      const incluye = {};
+      for (const [id, f] of Object.entries(filas)) {
+        incluye[id] = { provee: f.prov.value, envio: f.envio ? f.envio.checked : false };
+        if (f.cant) { incluye[id].auto = f.cant.dataset.auto !== 'no'; if (!incluye[id].auto) incluye[id].cantidad = num(f.cant.value); }
+      }
+      return { ...v, clienteColocaArena: v.clienteColocaArena === 'si', incluye };
+    };
+
+    const refresh = () => {
+      const t = TIPOS[tipoSel.value] || TIPOS.otro;
+      const k = calcularCancha(leerInputs());
+      const m = cespedDe(cespedSel.value);
+      formatoF.parentNode.hidden = tipoSel.value !== 'futbol';
+      anchoF.closest('div.row').parentNode.hidden = t.medida !== 'cancha';
+      padelF.parentNode.hidden = t.medida !== 'padel';
+      m2F.parentNode.hidden = t.medida !== 'm2';
+      cespedOtroF.parentNode.hidden = cespedSel.value !== 'otro';
+      alturaF.parentNode.hidden = !(m && m.alturas && m.alturas.length);
+      colorF.querySelector('select').disabled = !!m && !m.admiteBicolor;
+      if (m && !m.admiteBicolor) colorF.querySelector('select').value = 'mono';
+      bicolorF.parentNode.hidden = !k.bicolor;
+      multiBox.hidden = !k.multisportResidencial;
+      // Blanco
+      const b = k.blanco;
+      blancoBox.hidden = b.modo !== 'calculo' && b.modo !== 'manual';
+      const calcula = b.modo === 'calculo' && !b.manual;
+      tomasNota.hidden = !b.pedirATomas;
+      blancoManualF.parentNode.hidden = !b.manual;
+      blancoManualF.querySelector('span').textContent = b.pedirATomas ? 'Blanco que pasó Tomás (m² por cancha)' : 'Blanco (m² por cancha, a mano)';
+      paramsBox.hidden = !calcula;
+      mlExtraF.parentNode.hidden = !(calcula && b.demarcacion === 'doble');
+      desglose.hidden = !calcula;
+      if (calcula) {
+        const r = b.desglose;
+        desglose.replaceChildren(...(r ? [
+          h('div', `Perímetro 2 × [(${fmtNum(k.ancho)} − ${fmtNum(2 * b.s)}) + (${fmtNum(k.largo)} − ${fmtNum(2 * b.s)})] = ${fmtNum(r.perimetro)} ml`),
+          h('div', `Línea del medio ${fmtNum(r.medio)} ml · áreas ${k.formato} ${fmtNum(r.areas)} ml${r.extra ? ` · extra ${fmtNum(r.extra)} ml` : ''}`),
+          h('div', `${fmtNum(r.ml)} ml × ${fmtNum(b.anchoLineaCm / 100)} m = ${m2Texto(r.m2Neto)} + ${fmtNum(b.desperdicio)} % de desperdicio`),
+          h('b', `Blanco: ${m2Texto(r.m2)} por cancha`),
+        ] : [h('div', 'Cargá ancho y largo para calcular el blanco.')]));
+      }
+      // m² de césped
+      const partes = [];
+      if (t.medida === 'cancha') {
+        partes.push(h('div', k.ancho && k.largo ? `Superficie ${fmtNum(k.ancho)} × ${fmtNum(k.largo)} = ${m2Texto(k.ancho * k.largo)}${num(b.m2) ? ` + blanco ${m2Texto(b.m2)}` : ''}${k.bicolorExtraM2 ? ` + bicolor ${m2Texto(k.bicolorExtraM2)}` : ''} = ${m2Texto(k.m2PorCancha)}${k.cantidad > 1 ? ' por cancha' : ''}` : 'Cargá ancho y largo para calcular los m².'));
+      } else if (t.medida === 'padel') {
+        partes.push(h('div', `${m2Texto(k.m2Padel)} por cancha · blanco incluido`));
+      }
+      if (k.m2) partes.push(h('b', `Césped: ${m2Texto(k.m2)}${k.cantidad > 1 && t.medida !== 'm2' ? ` (${k.cantidad} canchas)` : ''}`));
+      m2Box.replaceChildren(...partes);
+      m2Box.hidden = !partes.length;
+      // Qué incluye
+      for (const [id, f] of Object.entries(filas)) {
+        const x = k.incluye[id];
+        f.row.hidden = !x.aplica;
+        if (id === 'cesped') f.info.textContent = k.m2 ? ' ' + m2Texto(k.m2) : ' Falta la medida';
+        else if (id === 'blanco') f.info.textContent = num(x.cantidad) ? ' ' + m2Texto(x.cantidad) : b.pedirATomas ? ' Pedir a Tomás' : ' Sin cargar';
+        else if (id === 'pegamento' || id === 'cinta') f.info.textContent = ' La cantidad la carga Entregas';
+        else if (f.cant) {
+          if (f.cant.dataset.auto !== 'no') f.cant.value = num(x.cantidad) ? fmtNum(num(x.cantidad)) : '';
+          f.info.textContent = m ? ` ${fmtNum(num(id === 'arena' ? m.arenaKgM2 : m.cauchoKgM2))} kg/m² × ${m2Texto(k.superficie)}${f.cant.dataset.auto === 'no' ? ' · corregido a mano' : ''}` : '';
+          f.recalcular.hidden = f.cant.dataset.auto !== 'no';
+        }
+      }
+      sinGarantiaNota.hidden = !k.sinGarantia;
+      if (onCambio) onCambio(k);
+      return k;
+    };
+
+    tipoSel.addEventListener('change', () => {
+      if ((TIPOS[tipoSel.value] || {}).medida === 'padel' && !q(padelF).value) q(padelF).value = fmtNum(padelM2Default());
+      llenarCesped();
+      llenarAltura();
+      for (const id of ['arena', 'caucho']) if (filas[id].cant) filas[id].cant.dataset.auto = 'si';
+      refresh();
+    });
+    cespedSel.addEventListener('change', () => { llenarAltura(); for (const id of ['arena', 'caucho']) filas[id].cant.dataset.auto = 'si'; refresh(); });
+    el.addEventListener('input', () => refresh());
+    el.addEventListener('change', () => refresh());
+    llenarCesped();
+    llenarAltura();
+    return { el, refresh, leer: () => calcularCancha(leerInputs()) };
+  }
+
+  // Planos: se suben al almacenamiento de archivos (Firebase Storage); en la obra queda el link, el nombre y la fecha.
+  const PLANO_MAX_MB = 15;
+  function planosEditor(o, onCambio) {
+    const existentes = (o && o.planos) || [];
+    const quitados = new Set();
+    const nuevos = [];
+    const list = h('div.list', { style: { marginBottom: '8px' } });
+    const obligatorio = h('span.badge.red', { style: { marginLeft: '6px' } }, 'Obligatorio');
+    const nota = h('p.small', { style: { margin: '-4px 0 10px', color: 'var(--red)', fontWeight: 600 } });
+    const paint = () => {
+      const items = [...existentes.filter((p) => !quitados.has(p.id)), ...nuevos];
+      list.hidden = !items.length;
+      list.replaceChildren(...items.map((p) => h('div.item', { style: { cursor: 'default', padding: '9px 12px' } },
+        icon(p.mime === 'application/pdf' ? 'file' : 'eye'),
+        h('div.grow.ellipsis', p.nombre || 'Plano', p.blob ? h('span.muted', ' · nuevo') : h('span.muted', ' · ' + UI.fmtDay((p.fecha || '').slice(0, 10)))),
+        h('button.btn.small.ghost', { type: 'button', onclick: () => (p.blob ? window.open(URL.createObjectURL(p.blob), '_blank') : verPlano(p)) }, 'Ver'),
+        h('button.btn.small.ghost', { type: 'button', 'aria-label': 'Quitar', onclick: () => { if (p.blob) nuevos.splice(nuevos.indexOf(p), 1); else quitados.add(p.id); paint(); if (onCambio) onCambio(); } }, icon('trash')))));
+    };
+    const leer = async (file) => {
+      const id = uid() + uid();
+      if (/^image\//.test(file.type)) {
+        // Las fotos de planos se achican un poco (siguen legibles) para no ocupar de más.
+        const b64 = await UI.compressImage(file, 3200, 0.85, 3000000);
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return { id, nombre: file.name.replace(/\.[^.]+$/, '') + '.jpg', mime: 'image/jpeg', blob: new Blob([bytes], { type: 'image/jpeg' }) };
+      }
+      if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+        if (file.size > PLANO_MAX_MB * 1024 * 1024) throw new Error(`«${file.name}» pesa más de ${PLANO_MAX_MB} MB.`);
+        return { id, nombre: file.name, mime: 'application/pdf', blob: file };
+      }
+      throw new Error(`«${file.name}» no es una foto ni un PDF.`);
+    };
+    const agregar = () => {
+      const inp = h('input', { type: 'file', accept: 'image/*,application/pdf', multiple: true, style: { display: 'none' } });
+      inp.addEventListener('change', async () => {
+        for (const file of [...inp.files]) {
+          try { nuevos.push(await leer(file)); } catch (e) { UI.toast(e.message, 6000); }
+        }
+        inp.remove();
+        paint();
+        if (onCambio) onCambio();
+      });
+      document.body.append(inp);
+      inp.click();
+    };
+    paint();
+    const titulo = h('span', 'Plano');
+    return {
+      el: h('div.field', h('div.row', { style: { gap: 0 } }, titulo, obligatorio), list, nota, h('button.btn.small', { type: 'button', onclick: agregar }, icon('clip'), 'Adjuntar plano (foto o PDF)')),
+      cantidad: () => existentes.filter((p) => !quitados.has(p.id)).length + nuevos.length,
+      marcar: (requiere, porque) => {
+        obligatorio.hidden = !requiere;
+        const falta = requiere && !(existentes.filter((p) => !quitados.has(p.id)).length + nuevos.length);
+        nota.hidden = !falta;
+        nota.textContent = falta ? `Falta el plano (obligatorio en ${porque}). Se puede guardar, pero no pasa a Entregas hasta adjuntarlo.` : '';
+      },
+      // Sube los nuevos y devuelve la lista para guardar en la obra, y los archivos a borrar.
+      async guardar(obraId) {
+        const subidos = [];
+        for (const p of nuevos) {
+          const limpio = p.nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.-]+/g, '_').slice(-80);
+          const path = `obras/${obraId}/planos/${p.id}-${limpio}`;
+          const url = await cloud.upload(path, p.blob, p.mime);
+          subidos.push({ id: p.id, nombre: p.nombre, mime: p.mime, path, url, tamano: p.blob.size, fecha: new Date().toISOString(), por: me.email, porNombre: me.nombre });
+        }
+        return { planos: [...existentes.filter((p) => !quitados.has(p.id)), ...subidos], borrar: existentes.filter((p) => quitados.has(p.id)).map((p) => p.path) };
+      },
+    };
+  }
+
+  // Tributos incluidos en el precio (percepciones u otros): nombre y monto.
+  function tributosEditor(lista) {
+    const rows = h('div');
+    const add = (t = {}) => {
+      const nombre = h('input', { type: 'text', placeholder: 'Ej: Percepción IIBB', autocomplete: 'off', 'aria-label': 'Tributo' });
+      nombre.value = t.nombre || '';
+      const monto = numeroInput(h('input', { type: 'text', placeholder: 'Monto', 'aria-label': 'Monto del tributo' }));
+      monto.value = num(t.monto) ? fmtNum(num(t.monto)) : '';
+      const row = h('div.tributo', nombre, monto, h('button.btn.small.ghost', { type: 'button', 'aria-label': 'Quitar', onclick: () => row.remove() }, icon('trash')));
+      row.leer = () => ({ id: t.id || uid(), nombre: nombre.value.trim(), monto: num(monto.value) });
+      rows.append(row);
+      return nombre;
+    };
+    lista.forEach(add);
+    const el = h('div.field', h('span', 'Tributos (percepciones u otros)'), rows,
+      h('button.btn.small', { type: 'button', onclick: () => add().focus() }, icon('plus'), 'Agregar tributo'),
+      h('p.small.muted', { style: { margin: '6px 0 0' } }, 'Incluidos en el precio total (no se suman).'));
+    return { el, leer: () => [...rows.children].map((r) => r.leer()).filter((t) => t.nombre || t.monto) };
   }
 
   function editObra(o) {
     if (!canVenta) return;
     const isNew = !o;
     const v = (o && ventas[o._id]) || {};
-    const tipo0 = o ? o.tipo : 'futbol';
-    const t0 = TIPOS[tipo0] || TIPOS.otro;
     const hayPagos = !!(o && (pagosPorObra[o._id] || []).length);
     const contactos = contactosEditor(o ? contactosDe(o) : []);
-    const planosEd = planosEditor(o);
+    const planosEd = planosEditor(o, () => cancha.refresh());
+    let body = null;
     const clientePk = clientePicker(o, (x) => {
       if (!x) return;
       $('clienteNombre').value = x.clienteNombre || '';
@@ -2485,42 +3055,18 @@
     const fila = (...campos) => h('div.row', { style: { gap: '10px', alignItems: 'flex-start' } }, campos.map((c) => h('div.grow', { style: { minWidth: 0 } }, c)));
     const n0 = (x) => (num(x) ? fmtNum(num(x)) : '');
 
-    /* --- Medidas: ancho × largo + blanco (canchas) o m² directo (residencial) --- */
-    const m2F = UI.field({ label: 'm²', name: 'm2', value: o && medidaDe(tipo0) === 'm2' ? n0(o.m2) : '' });
-    const anchoF = UI.field({ label: 'Ancho (m)', name: 'ancho', value: o ? n0(o.ancho) : '' });
-    const largoF = UI.field({ label: 'Largo (m)', name: 'largo', value: o ? n0(o.largo) : '' });
-    const demF = UI.field({ label: 'Demarcación', name: 'demarcacion', type: 'select', value: (o && o.demarcacion) || 'simple', options: [['simple', 'Simple'], ['doble', 'Doble']] });
-    const blancoF = UI.field({ label: 'Blanco (m²)', name: 'blanco', value: o ? n0(o.blanco) : '' });
-    const blancoNota = h('p.small.muted', { style: { marginTop: '-8px' } });
-    const m2Calc = h('div.calc');
-    const medM2 = h('div', m2F);
-    const medCancha = h('div', fila(anchoF, largoF), fila(demF, blancoF), blancoNota, m2Calc);
-    [m2F, anchoF, largoF, blancoF].forEach((f) => numeroInput(f.querySelector('input')));
-    const blancoInp = blancoF.querySelector('input');
-    let blancoTocado = !!(o && num(o.blanco));
-    blancoInp.addEventListener('input', () => { blancoTocado = !!blancoInp.value; });
-
-    /* --- Césped: modelo según el deporte, monocolor o bicolor --- */
-    let modelo0 = o ? o.cespedModelo || '' : '';
-    let otro0 = o ? o.cespedOtro || '' : '';
-    if (o && !o.cespedModelo && !o.cespedOtro && o.cesped) { // obras viejas: el césped era texto libre
-      if (cespedesDe(tipo0).includes(o.cesped)) modelo0 = o.cesped;
-      else otro0 = o.cesped;
-    }
-    const cespedF = UI.field({ label: 'Tipo de césped', name: 'cespedModelo', type: 'select', value: '', options: [] });
-    const cespedSel = cespedF.querySelector('select');
-    const cespedOtroF = UI.field({ label: 'Cuál', name: 'cespedOtro', value: otro0, placeholder: 'Modelo y altura. Ej: Monofilamento 60 mm' });
-    const llenarCesped = (tipo, elegido) => {
-      const lista = cespedesDe(tipo);
-      const sel = lista.includes(elegido) ? elegido : elegido === 'otro' || !lista.length ? 'otro' : lista[0];
-      cespedSel.replaceChildren(...[...lista.map((m) => [m, m]), ['otro', lista.length ? 'Otro (especificar)' : 'Escribir el modelo']]
-        .map(([val, txt]) => h('option', { value: val, selected: val === sel }, txt)));
-      cespedSel.value = sel;
-    };
-    llenarCesped(tipo0, modelo0 || (otro0 ? 'otro' : ''));
-    const colorF = UI.field({ label: 'Color', name: 'color', type: 'select', value: o && o.bicolor ? 'bicolor' : 'mono', options: [['mono', 'Monocolor'], ['bicolor', 'Bicolor']] });
-    const coloresF = UI.field({ label: 'Colores', name: 'colores', value: o ? o.colores || '' : '', placeholder: 'Ej: verde y blanco' });
-    const bicolorNota = h('div.calc');
+    /* --- La cancha (tipo, medidas, césped, blanco, qué incluye) --- */
+    let garantiaAntes = null; // la garantía cargada, para devolverla si se vuelve a «instalación Slavon»
+    const cancha = canchaEditor(o, (k) => {
+      const g = body && body.querySelector('[name=garantiaAnios]');
+      if (g) {
+        if (k.sinGarantia && !g.disabled) { garantiaAntes = g.value; g.value = '0'; g.disabled = true; }
+        if (!k.sinGarantia && g.disabled) { g.disabled = false; g.value = garantiaAntes && garantiaAntes !== '0' ? garantiaAntes : ''; }
+        garantiaNota.hidden = !k.sinGarantia;
+      }
+      planosEd.marcar(requierePlano(k), porQuePlano(k));
+    });
+    const garantiaNota = h('p.small', { style: { marginTop: '-8px', color: 'var(--red)', fontWeight: 600 }, hidden: true }, 'Sin garantía: la instalación está a cargo del cliente.');
 
     /* --- Plazo, garantía y plata --- */
     const plazoF = UI.field({ label: 'Plazo', name: 'plazo', type: 'select', value: (o && o.plazo) || 'inmediata', options: Object.entries(window.OBRAS_PLAZOS).map(([k, p]) => [k, p.nombre]) });
@@ -2544,20 +3090,15 @@
     primeraF.querySelector('input').addEventListener('input', () => { primeraTocada = true; });
 
     const chk = (name, label, checked) => h('label.check', h('input', { type: 'checkbox', name, checked }), label);
-    const materialF = (m) => UI.field({ label: m === 'arena' ? 'Arena' : 'Caucho', name: m, type: 'select',
-      value: o ? materialDe(o, m) : t0[m] ? window.OBRAS_PROVEE[m] : 'no', options: [['cliente', ''], ['slavon', ''], ['no', '']] });
-    const arenaF = materialF('arena');
-    const cauchoF = materialF('caucho');
-    // El texto de cada opción dice si la instalamos o no, según esté incluida la instalación.
-    const textosMaterial = () => {
-      const inst = $('conInstalacion').checked;
-      for (const [m, f] of [['arena', arenaF], ['caucho', cauchoF]]) {
-        for (const op of f.querySelectorAll('option')) op.textContent = materialTexto(m, op.value, inst);
-      }
-    };
-    const tiposOpts = Object.entries(TIPOS).filter(([k, t]) => !t.oculto || k === tipo0).map(([k, t]) => [k, t.nombre]);
+    // Factura: sin factura, IVA mínimo o IVA total (monto a mano, incluido en el precio), y otros tributos.
+    const iva0 = v.iva || { tipo: 'sin', monto: 0 };
+    const ivaF = UI.field({ label: 'Factura', name: 'ivaTipo', type: 'select', value: iva0.tipo || 'sin', options: [['sin', 'Sin factura'], ['minimo', 'IVA mínimo'], ['total', 'IVA total']] });
+    const ivaMontoF = UI.field({ label: 'Monto del IVA', name: 'ivaMonto', value: num(iva0.monto) ? fmtNum(num(iva0.monto)) : '' });
+    numeroInput(ivaMontoF.querySelector('input'));
+    const ivaBox = h('div', ivaMontoF, h('p.small.muted', { style: { marginTop: '-8px' } }, 'Incluido en el precio total (no se suma).'));
+    const tributos = tributosEditor(v.tributos || []);
 
-    const body = h('div',
+    body = h('div',
       h('h3', { style: { margin: '0 0 10px' } }, 'Cliente'),
       clientePk.el,
       fila(
@@ -2570,20 +3111,7 @@
 
       h('h3', { style: { margin: '18px 0 10px' } }, 'La cancha'),
       UI.field({ label: 'Nombre de la obra', name: 'nombre', value: o ? o.nombre : '', placeholder: 'Si queda vacío: club o cliente + tipo' }),
-      h('div.row', { style: { gap: '10px', alignItems: 'flex-start' } },
-        h('div.grow', UI.field({ label: 'Tipo', name: 'tipo', type: 'select', value: tipo0, options: tiposOpts })),
-        h('div', { style: { width: '34%' } }, UI.field({ label: 'Canchas', name: 'cantidad', type: 'number', inputMode: 'numeric', value: o ? o.cantidad || 1 : 1 }))),
-      medM2,
-      medCancha,
-      cespedF,
-      h('div', cespedOtroF),
-      fila(colorF, coloresF),
-      bicolorNota,
-      h('div.field-title', 'Incluye el presupuesto'),
-      chk('conInstalacion', 'Instalación', !o || o.conInstalacion !== false),
-      arenaF,
-      cauchoF,
-      h('p.small.muted', { style: { marginTop: '-8px' } }, 'Con esto se arman las etapas de la obra.'),
+      cancha.el,
       planosEd.el,
       UI.field({ label: 'Consideraciones especiales', name: 'consideraciones', type: 'textarea', value: o ? o.consideraciones : '', placeholder: 'Ej: base de hormigón existente, acceso angosto' }),
       isNew ? null : h('p.small.muted', 'Cambiar el tipo o lo que incluye no cambia las etapas ya armadas: para eso usá «Editar etapas».'),
@@ -2598,12 +3126,17 @@
         UI.field({ label: 'N° de pedido (opcional)', name: 'pedido', value: o ? o.pedido || '' : '', placeholder: 'Ej: 1234' })),
       plazoF,
       h('div', plazoOtroF),
+      chk('conStock', 'Con stock (sale de stock, no se fabrica)', !!(o && o.conStock)),
       fila(
         UI.field({ label: 'Fecha de entrega', name: 'fechaEntrega', type: 'date', value: o ? o.fechaEntrega : UI.addDays(UI.today(), 5) }),
         UI.field({ label: 'Garantía (años)', name: 'garantiaAnios', inputMode: 'decimal', value: gm ? String(CALC.round2(gm / 12)).replace('.', ',') : '', placeholder: 'Ej: 2' })),
+      garantiaNota,
       formaF,
       h('div.row', { style: { gap: '10px', alignItems: 'flex-start' } }, h('div', { style: { width: '34%' } }, monedaF), h('div.grow', precioF)),
       hayPagos ? h('p.small.muted', { style: { marginTop: '-8px' } }, 'Ya hay pagos registrados: la moneda no se puede cambiar.') : null,
+      ivaF,
+      ivaBox,
+      tributos.el,
       fila(senaF, senaFechaF),
       finBox,
       UI.field({ label: 'Notas de la venta', name: 'notasVenta', type: 'textarea', value: v.notasVenta || '', placeholder: 'Sólo la ven admin y administración' }),
@@ -2615,43 +3148,13 @@
     const $ = (n) => body.querySelector(`[name=${n}]`);
     leerPrecio = () => ({ monto: num($('precio').value), moneda: $('moneda').value === 'ARS' ? 'ARS' : 'USD' });
 
-    // Recalcula lo que depende de otros campos: m², blanco, bicolor, plazo y cuotas.
+    // Recalcula lo que depende de otros campos: plazo, IVA, comisión y cuotas (la cancha se recalcula sola).
     const refresh = () => {
       const val = UI.values(body);
-      const porM2 = medidaDe(val.tipo) === 'm2';
-      const cant = Math.max(1, Math.round(num(val.cantidad)) || 1);
-      medM2.hidden = !porM2;
-      medCancha.hidden = porM2;
-      m2F.querySelector('span').textContent = cant > 1 ? 'm² (en total)' : 'm²';
-      let m2Total = 0;
-      if (porM2) m2Total = num(val.m2);
-      else {
-        const ancho = num(val.ancho);
-        const largo = num(val.largo);
-        const auto = CALC.blanco({ tipo: val.tipo, ancho, largo, demarcacion: val.demarcacion });
-        if (auto != null && !blancoTocado) blancoInp.value = fmtNum(auto);
-        blancoNota.textContent = auto == null ? 'La fórmula del blanco todavía no está cargada: por ahora va a mano.' : blancoTocado ? 'Cargado a mano.' : `Calculado con demarcación ${val.demarcacion}.`;
-        const b = num(blancoInp.value);
-        if (ancho && largo) {
-          const porCancha = CALC.m2Cancha({ ancho, largo, blanco: b });
-          m2Total = CALC.round2(porCancha * cant);
-          m2Calc.replaceChildren(
-            h('div', `${fmtNum(ancho)} × ${fmtNum(largo)} = ${m2Texto(CALC.round2(ancho * largo))}${b ? ` + blanco ${m2Texto(b)}` : ''}${b || cant > 1 ? ` = ${m2Texto(porCancha)}${cant > 1 ? ' por cancha' : ''}` : ''}`),
-            h('b', `Total: ${m2Texto(m2Total)}${cant > 1 ? ` (${cant} canchas)` : ''}`));
-        } else {
-          m2Calc.replaceChildren(h('div', o && num(o.m2) && !num(o.ancho) ? `Cargá ancho y largo. Hasta ahora tenía ${m2Texto(o.m2)} cargados a mano.` : 'Cargá ancho y largo para calcular los m².'));
-        }
-      }
-      cespedOtroF.parentNode.hidden = cespedSel.value !== 'otro';
-      cespedOtroF.querySelector('span').textContent = cespedesDe(val.tipo).length ? 'Cuál' : 'Modelo de césped';
-      if (val.color === 'bicolor') {
-        const d = CALC.bicolor({ m2: m2Total, ancho: num(val.ancho), largo: num(val.largo) });
-        bicolorNota.replaceChildren(h('div', d == null ? 'Bicolor: la fórmula del desperdicio todavía no está cargada.' : `Con el desperdicio del bicolor: ${m2Texto(d)}.`));
-      }
-      bicolorNota.hidden = val.color !== 'bicolor';
       plazoOtroF.parentNode.hidden = val.plazo !== 'otro';
-      textosMaterial();
       revPk.refresh();
+      ivaBox.hidden = val.ivaTipo === 'sin';
+      ivaMontoF.querySelector('span').textContent = `Monto del ${val.ivaTipo === 'total' ? 'IVA total' : 'IVA mínimo'} (${val.moneda === 'ARS' ? '$' : 'US$'})`;
 
       const fin = val.formaPago === 'financiado';
       const moneda = val.moneda === 'ARS' ? 'ARS' : 'USD';
@@ -2675,14 +3178,6 @@
     body.addEventListener('input', refresh);
     body.addEventListener('change', refresh);
 
-    // Al cambiar el tipo: lo que incluye normalmente y la lista de céspedes de ese deporte.
-    $('tipo').addEventListener('change', () => {
-      const t = TIPOS[$('tipo').value] || TIPOS.otro;
-      $('arena').value = t.arena ? window.OBRAS_PROVEE.arena : 'no';
-      $('caucho').value = t.caucho ? window.OBRAS_PROVEE.caucho : 'no';
-      llenarCesped($('tipo').value, cespedSel.value);
-      refresh();
-    });
     // Al cambiar el plazo o la fecha de venta, propone la fecha de entrega (y la de la primera cuota).
     const proponer = () => {
       const p = window.OBRAS_PLAZOS[$('plazo').value];
@@ -2695,6 +3190,7 @@
       refresh();
     });
     refresh();
+    cancha.refresh();
 
     const actions = [{ label: 'Cancelar' }, {
       label: isNew ? 'Cargar venta' : 'Guardar', kind: 'primary', onClick: async () => {
@@ -2742,22 +3238,16 @@
         if (sena > precio && precio) throw new Error(`${fin ? 'El anticipo' : 'La seña'} no puede ser mayor que el precio.`);
         if (fin && !(Math.round(num(val.cuotas)) >= 1)) throw new Error('Poné la cantidad de cuotas.');
         if (val.plazo === 'otro' && !val.plazoOtro) throw new Error('Escribí cuál es el plazo.');
-        const cantidad = Math.max(1, Math.round(num(val.cantidad)) || 1);
-        const porM2 = medidaDe(val.tipo) === 'm2';
-        const ancho = porM2 ? 0 : num(val.ancho);
-        const largo = porM2 ? 0 : num(val.largo);
-        const blanco = porM2 ? 0 : num(val.blanco);
-        const m2 = porM2 ? num(val.m2)
-          : ancho && largo ? CALC.round2(CALC.m2Cancha({ ancho, largo, blanco }) * cantidad)
-            : o ? num(o.m2) : 0;
-        const modelo = cespedSel.value === 'otro' ? '' : cespedSel.value;
-        const cesped = { cespedModelo: modelo, cespedOtro: modelo ? '' : val.cespedOtro, bicolor: val.color === 'bicolor', colores: val.colores };
-        const anios = val.garantiaAnios === '' ? '' : num(val.garantiaAnios);
+        const k = cancha.leer();
+        if (!k.cespedDet.nombre) throw new Error('Elegí el tipo de césped.');
+        if (val.ivaTipo !== 'sin' && !num(val.ivaMonto)) throw new Error('Poné el monto del IVA (o elegí «Sin factura»).');
+        const tribs = tributos.leer();
+        if (tribs.some((t) => !t.nombre || !(t.monto > 0))) throw new Error('Cada tributo necesita nombre y monto.');
+        const anios = k.sinGarantia ? 0 : val.garantiaAnios === '' ? '' : num(val.garantiaAnios);
+        const { multisportResidencial, ...datosK } = k;
         const obra = {
-          nombre: val.nombre || [club || clienteNombre, tipoNombre(val.tipo)].filter(Boolean).join(' – '),
-          tipo: val.tipo, cantidad, ancho, largo, demarcacion: porM2 ? '' : val.demarcacion, blanco, m2,
-          ...cesped, cesped: cespedTexto(cesped),
-          conInstalacion: val.conInstalacion, arena: val.arena, caucho: val.caucho, conArena: val.arena !== 'no', conCaucho: val.caucho !== 'no', consideraciones: val.consideraciones,
+          nombre: val.nombre || [club || clienteNombre, tipoNombre(k.tipo)].filter(Boolean).join(' – '),
+          ...datosK, conStock: !!val.conStock, consideraciones: val.consideraciones,
           clienteId, clienteNombre, club, cliente: clienteTexto(club, clienteNombre), contactos: cts, pedido: val.pedido,
           telefono: (cts.find((c) => c.tipo === 'tel') || {}).valor || '', email: (cts.find((c) => c.tipo === 'mail') || {}).valor || '',
           ubicacion: val.ubicacion, interior: val.interior,
@@ -2768,24 +3258,29 @@
         const venta = {
           moneda: val.moneda === 'ARS' ? 'ARS' : 'USD', precio, sena, senaFecha: val.senaFecha, formaPago: val.formaPago,
           cuotas: fin ? Math.round(num(val.cuotas)) : null, tasaMensual: fin ? (val.tasaMensual === '' ? 0 : num(val.tasaMensual)) : null, primeraCuota: fin ? val.primeraCuota : '',
-          vendedores, vendio: vendedores.map((x) => x.nombre).join(', '), revendedor, notasVenta: val.notasVenta, ...stamp(),
+          vendedores, vendio: vendedores.map((x) => x.nombre).join(', '), revendedor, notasVenta: val.notasVenta,
+          iva: { tipo: val.ivaTipo, monto: val.ivaTipo === 'sin' ? 0 : num(val.ivaMonto) }, tributos: tribs, ...stamp(),
         };
+        // Planos: se suben antes de guardar (hace falta conexión); en la obra queda el link, el nombre y la fecha.
+        const id = isNew ? cloud.newId() : o._id;
+        let pl;
+        try { pl = await planosEd.guardar(id); } catch (e) { throw new Error('No se pudo subir el plano (hace falta conexión): ' + (e.message || e)); }
+        obra.planos = pl.planos;
+        const sinPlano = faltaPlano(obra);
         if (isNew) {
-          const id = cloud.newId();
-          const opts = { conInstalacion: val.conInstalacion, conArena: val.arena !== 'no', conCaucho: val.caucho !== 'no' };
+          const opts = { conInstalacion: k.conInstalacion, conArena: k.conArena, conCaucho: k.conCaucho };
           cloud.write([
             {
               op: 'set', col: 'obras', id, data: {
                 ...obra, estado: faltanDatosVenta(obra, venta).length ? 'venta' : 'vendida', fin: '', postventa: [], incidencias: [], responsable: '', equipo: '', flete: '',
                 instInicio: '', instFin: '', inicio: '',
-                etapas: window.obrasEtapas(val.tipo, opts).map((nombre) => ({ id: uid(), nombre, estado: 'pendiente', nota: '' })),
-                checklist: checklistDefault(val.tipo, opts),
+                etapas: window.obrasEtapas(k.tipo, opts).map((nombre) => ({ id: uid(), nombre, estado: 'pendiente', nota: '' })),
+                checklist: checklistDefault(k.tipo, opts),
                 logistica: val.interior ? window.OBRAS_LOGISTICA.map((texto) => ({ id: uid(), texto, ok: false })) : [],
                 creadoPor: me.email, creadoPorNombre: me.nombre, creadoEn: cloud.serverTime(),
               },
             },
             { op: 'set', col: 'ventas', id, data: { ...venta, contratoFirmado: false } },
-            ...planosEd.ops(id),
             ...opsCliente,
           ]);
           go('obra/' + id + '/venta');
@@ -2798,11 +3293,12 @@
           cloud.write([
             { op: 'update', col: 'obras', id: o._id, data: obra },
             { op: ventas[o._id] ? 'update' : 'set', col: 'ventas', id: o._id, data: venta },
-            ...planosEd.ops(o._id),
             ...opsCliente,
           ]);
           UI.toast(obra.estado === 'vendida' ? 'Venta completa: pasó a Administración' : 'Guardado');
         }
+        for (const path of pl.borrar) cloud.removeFile(path).catch(() => {});
+        if (sinPlano) setTimeout(() => UI.toast(`Falta el plano (obligatorio en ${porQuePlano(obra)}): no va a poder pasar a Entregas hasta adjuntarlo.`, 6000), isNew ? 3200 : 2800);
       },
     }];
     if (!isNew && isAdmin) {
@@ -2810,10 +3306,11 @@
         label: 'Eliminar', kind: 'danger', onClick: async () => {
           if (!(await UI.confirm('¿Eliminar la obra?', `Se borra «${o.nombre}» con su venta, sus pagos, planos y todas sus fotos. No se puede deshacer.`, 'Eliminar'))) return false;
           const ops = [{ op: 'delete', col: 'obras', id: o._id }, { op: 'delete', col: 'ventas', id: o._id },
-            ...[...fotos, ...planos].filter((f) => f.obraId === o._id).map((f) => ({ op: 'delete', col: 'fotos', id: f._id })),
+            ...fotos.filter((f) => f.obraId === o._id).map((f) => ({ op: 'delete', col: 'fotos', id: f._id })),
             ...(pagosPorObra[o._id] || []).flatMap((p) => [{ op: 'delete', col: `ventas/${o._id}/pagos`, id: p._id },
               ...(p.comprobantes || []).map((m) => ({ op: 'delete', col: `ventas/${o._id}/comprobantes`, id: m.id }))])];
           for (let i = 0; i < ops.length; i += 400) cloud.write(ops.slice(i, i + 400));
+          for (const p of o.planos || []) cloud.removeFile(p.path).catch(() => {});
           go('ventas');
           UI.toast('Obra eliminada');
         },
@@ -2879,7 +3376,7 @@
   }
 
   function seedDemo() {
-    cloud.seedOnce('v6', (put) => {
+    cloud.seedOnce('v7', (put) => {
       const t = UI.today();
       const d = (n) => UI.addDays(t, n);
       const DEL = 'administrativo@demo.slavon';
@@ -2894,12 +3391,13 @@
       put('config', 'obras', { equipos: ['Equipo AMBA 1', 'Equipo AMBA 2', 'Equipo AMBA 3', 'Instalador interior 1', 'Instalador interior 2'] });
 
       // Etapas: las primeras «hechas» con fecha, la siguiente «en curso» si corresponde.
-      const etapas = (tipo, hechas, enCurso, opts = {}, desde = -2 * hechas, quien = 'Beto (demo)') => window.obrasEtapas(tipo, opts).map((nombre, i) => ({
+      const optsDef = (tipo) => ({ conInstalacion: true, conArena: !['residencial', 'mantenimiento', 'otro'].includes(tipo), conCaucho: tipo === 'futbol' });
+      const etapas = (tipo, hechas, enCurso, opts = {}, desde = -2 * hechas, quien = 'Beto (demo)') => window.obrasEtapas(tipo, { ...optsDef(tipo), ...opts }).map((nombre, i) => ({
         id: 'e' + i, nombre,
         estado: i < hechas ? 'hecha' : i === hechas && enCurso ? 'en_curso' : 'pendiente',
         fecha: i < hechas ? d(desde + i * 2) : '', porNombre: i < hechas ? quien : '', por: '', nota: '',
       }));
-      const check = (tipo, todo, opts) => checklistDefault(tipo, opts).map((c) => (todo ? { ...c, ok: true, porNombre: 'Carajo (demo)', fecha: t } : c));
+      const check = (tipo, todo, opts) => checklistDefault(tipo, { ...optsDef(tipo), ...opts }).map((c) => (todo ? { ...c, ok: true, porNombre: 'Carajo (demo)', fecha: t } : c));
       const pv = (fin, hechos) => window.OBRAS_POSTVENTA.map((p, i) => ({ id: p.id, label: p.label, fecha: UI.addMonths(fin, p.meses), hecho: i < hechos, nota: i < hechos ? 'Todo bien, contentos con la cancha.' : '', porNombre: i < hechos ? 'Delfina (demo)' : '', hechoFecha: i < hechos ? UI.addMonths(fin, p.meses) : '' }));
       const base = {
         incidencias: [], flete: '', editadoPorNombre: 'Delfina (demo)', creadoPorNombre: 'Delfina (demo)', cantidad: 1, interior: false, logistica: [],
@@ -2914,7 +3412,7 @@
       });
       // Cancha: ancho × largo + blanco, por la cantidad de canchas.
       const cancha = (tipo, ancho, largo, blanco = 0, demarcacion = 'simple', cantidad = 1) => ({ tipo, ancho, largo, blanco, demarcacion, cantidad, m2: CALC.round2(CALC.m2Cancha({ ancho, largo, blanco }) * cantidad) });
-      const cesp = (cespedModelo, colores, bicolor = false) => { const c = { cespedModelo, cespedOtro: '', bicolor, colores }; return { ...c, cesped: cespedTexto(c) }; };
+      const cesp = (cespedModelo, colores, bicolor = false) => ({ cespedModelo, bicolor, colores });
       // Catálogos de ejemplo.
       const VEND = { melina: 'Melina', delfina: 'Delfina', juan: 'Juan' };
       for (const [k, nombre] of Object.entries(VEND)) put('vendedores', 'vd_' + k, { nombre, activo: true });
@@ -2930,6 +3428,7 @@
       put('cuentas', 'ct_atlantis', { nombre: 'Atlantis', tipo: 'banco', moneda: 'ambas', banco: 'Banco Nación', titular: 'Atlantis', cbu: '', alias: 'atlantis.cobros', pideFactura: true, activo: true });
       put('cuentas', 'ct_caja_ars', { nombre: 'Efectivo oficina $', tipo: 'efectivo', moneda: 'ARS', pideFactura: false, activo: true });
       put('cuentas', 'ct_caja_usd', { nombre: 'Efectivo oficina US$', tipo: 'efectivo', moneda: 'USD', pideFactura: false, activo: true });
+      window.OBRAS_CESPEDES_INICIAL.forEach(({ id, ...x }, i) => put('cespedes', id, { ...x, orden: i, activo: true, notas: '' }));
       const DEST = {
         wmax: { cuentaId: 'ct_wmax', cuentaNombre: 'W. MAX SRL' },
         atlantis: { cuentaId: 'ct_atlantis', cuentaNombre: 'Atlantis' },
@@ -2968,17 +3467,32 @@
           clientes[key] = 'cl_' + id;
           put('clientes', clientes[key], { clienteNombre: o.clienteNombre, club: o.club, nombre: clienteTexto(o.club, o.clienteNombre), contactos: o.contactos, cuit: ex.cuit || '', notas: '', activo: true });
         }
-        put('obras', id, { ...base, ...o, clienteId: clientes[key] || '', pedido: ex.pedido || '' });
+        // Los modelos de la demo vieja, pasados al catálogo de césped de Slavon.
+        const MODELOS = { 'Fibrilado 12 mm': 'cs_fibpadel', 'Textil pádel': 'cs_monotexnac', 'Monofilamento 50 mm': 'cs_52pro', 'Monofilamento 40 mm': 'cs_44pro',
+          'Paisajismo 35 mm': 'cs_spring', 'Paisajismo 40 mm': 'cs_fairway', 'Hockey arena 22 mm': 'cs_multi', 'Tenis arena 20 mm': 'cs_multi', Multisport: 'cs_multi' };
+        const formato = o.tipo === 'futbol' ? ex.formato || (/F7/.test(o.nombre) ? 'F7' : /F5/.test(o.nombre) ? 'F5' : num(o.ancho) <= 22 ? 'F5' : 'F7') : '';
+        const k = calcularCancha({
+          tipo: o.tipo, formato, cantidad: o.cantidad || 1, ancho: o.ancho, largo: o.largo, m2Padel: '', m2Manual: o.m2,
+          cespedId: ex.cespedId || MODELOS[o.cespedModelo] || 'otro', cespedOtro: o.cespedModelo || '', color: o.bicolor ? 'bicolor' : 'mono', colores: o.colores,
+          bicolorExtra: ex.bicolorExtra, demarcacion: o.demarcacion, mlExtra: ex.mlExtra, blancoManual: ex.blancoManual, clienteColocaArena: ex.clienteColocaArena,
+          incluye: { instalacion: { provee: o.conInstalacion === false ? 'cliente' : 'slavon' }, cesped: { envio: true }, ...(ex.incluye || {}) },
+        });
+        const { multisportResidencial, ...cancha } = k;
+        const garantia = k.sinGarantia ? { garantiaAnios: 0, garantiaMeses: 0 } : {};
+        put('obras', id, { ...base, ...o, ...cancha, ...garantia, conStock: !!ex.conStock, planos: ex.planos || [], materialesEntrega: ex.materiales || null, clienteId: clientes[key] || '', pedido: ex.pedido || '' });
         const vend = (ex.vendedores || ['melina']).map((k) => ({ id: 'vd_' + k, nombre: VEND[k] }));
-        put('ventas', id, { moneda: 'USD', vendedores: vend, vendio: vend.map((x) => x.nombre).join(', '), revendedor: ex.revendedor || null, ...v });
+        put('ventas', id, { moneda: 'USD', vendedores: vend, vendio: vend.map((x) => x.nombre).join(', '), revendedor: ex.revendedor || null, iva: ex.iva || { tipo: 'sin', monto: 0 }, tributos: ex.tributos || [], ...v });
         if (num(v.sena) > 0 && !ex.sinSenaPago) pago(id, v.senaFecha || o.fechaVenta, 'USD', num(v.sena), 1570, ex.senaForma || 'cuenta', ex.senaDestino || 'wmax', '', { tipo: 'sena' });
       };
       const foto = (obraId, etapaId, texto, padel, dias = 0, quien = 'Beto (demo)') => put('fotos', obraId + '_' + etapaId + '_' + texto.length, {
         obraId, etapaId, data: fotoEjemplo(texto, padel ? '#2b6cb0' : '#2f8f46', padel), nota: '', por: '', porNombre: quien, fecha: new Date(Date.now() + dias * 864e5).toISOString(),
       });
-      const plano = (obraId, texto, nombre) => put('fotos', obraId + '_plano', {
-        obraId, tipo: 'plano', mime: 'image/jpeg', nombre, etapaId: '', data: fotoEjemplo(texto, '#5b6770'), nota: '', por: DEL, porNombre: 'Delfina (demo)', fecha: new Date().toISOString(),
-      });
+      // Planos de la demo: el archivo queda en este navegador; en la obra, el link, el nombre y la fecha.
+      const planoDemo = (obraId, texto, nombre) => {
+        const path = `obras/${obraId}/planos/demo-${obraId}.jpg`;
+        put('_archivos', path, 'data:image/jpeg;base64,' + fotoEjemplo(texto, '#5b6770'));
+        return { id: 'pl_' + obraId, nombre, mime: 'image/jpeg', path, url: 'demo:' + path, tamano: 0, fecha: new Date(Date.now() - 3 * 864e5).toISOString(), por: DEL, porNombre: 'Delfina (demo)' };
+      };
       const fin11 = (primeraCuota, cuotas = 11) => ({ formaPago: 'financiado', cuotas, tasaMensual: 1, primeraCuota });
 
       /* ----- En Ventas (incompleta) ----- */
@@ -2991,38 +3505,42 @@
       obra('v1', { nombre: 'Club Los Robles – Pádel 1 y 2', ...cancha('padel_cesped', 10, 20, 0, 'simple', 2), ...cesp('Fibrilado 12 mm', 'verde'), conArena: true, conCaucho: false,
         ...cli('Club Los Robles', 'Martín Robles', ['tel', '11 5555 0101', 'Martín, dueño'], ['tel', '11 5555 0111', 'Pepe, encargado'], ['mail', 'martin@losrobles.demo', 'Martín, dueño']),
         ubicacion: 'Tigre, Buenos Aires', fechaVenta: d(-2), plazo: 'inmediata', fechaEntrega: d(3), estado: 'vendida', etapas: etapas('padel_cesped', 0), checklist: check('padel_cesped') },
-      { precio: 9600, sena: 4800, senaFecha: d(-2), formaPago: 'contado' }, { pedido: '1041' });
+      { precio: 9600, sena: 4800, senaFecha: d(-2), formaPago: 'contado' }, { pedido: '1041', conStock: true, iva: { tipo: 'minimo', monto: 1000 } });
       pago('v1', d(-1), 'ARS', 3140000, 1570, 'cuenta', 'wmax', 'Pagó una parte, el resto la semana que viene', { comprobante: 'Comprobante transferencia', registrado: false, factura: 'solicitar' });
       obra('v2', { nombre: 'Escuela San Martín – F7', ...cancha('futbol', 30, 40, 60), ...cesp('Monofilamento 50 mm', 'verde'),
         ...cli('Escuela San Martín', 'Lic. Paz', ['tel', '11 5555 0102', 'Lic. Paz, directora'], ['mail', 'administracion@sanmartin.demo', 'Administración']),
         ubicacion: 'Lanús, Buenos Aires', fechaVenta: d(-6), plazo: 'fabricacion', fechaEntrega: d(19), estado: 'vendida', etapas: etapas('futbol', 0), checklist: check('futbol'), consideraciones: 'Acceso por calle lateral para el camión.' },
-      { precio: 24000, sena: 7200, senaFecha: d(-6), ...fin11(d(24)), contratoFirmado: false }, { pedido: '1042', vendedores: ['melina', 'delfina'] });
-      plano('v2', 'Plano F7 · 30 × 40 m', 'Plano cancha F7.jpg');
+      { precio: 24000, sena: 7200, senaFecha: d(-6), ...fin11(d(24)), contratoFirmado: false },
+      { pedido: '1042', vendedores: ['melina', 'delfina'], planos: [planoDemo('v2', 'Plano F7 · 30 × 40 m', 'Plano cancha F7.jpg')], iva: { tipo: 'total', monto: 4165 } });
       obra('v3', { nombre: 'Casa Fernández – Jardín', tipo: 'residencial', m2: 90, ...cesp('Paisajismo 35 mm', 'verde'), conArena: false, conCaucho: false,
         ...cli('', 'Laura Fernández', ['tel', '11 5555 0103', 'Laura'], ['mail', 'laura.fernandez@demo.ar', 'Laura']),
         ubicacion: 'Adrogué, Buenos Aires', fechaVenta: d(-20), plazo: 'inmediata', fechaEntrega: d(5), estado: 'vendida', etapas: etapas('residencial', 0), checklist: check('residencial'), garantiaAnios: 2, garantiaMeses: 24 },
-      { precio: 2100, sena: 1050, senaFecha: d(-20), formaPago: 'contado' }, { senaForma: 'efectivo_usd', senaDestino: 'caja_usd' });
+      { precio: 2100, sena: 1050, senaFecha: d(-20), formaPago: 'contado' }, { senaForma: 'efectivo_usd', senaDestino: 'caja_usd', incluye: { cesped: { envio: false } } });
       pago('v3', d(-1), 'ARS', 1648500, 1570, 'cuenta', 'atlantis');
       obra('v4', { nombre: 'Club Atlético Ituzaingó – Hockey', ...cancha('hockey', 55, 91.4, 0, 'doble'), ...cesp('Hockey arena 22 mm', 'azul'),
         ...cli('C. A. Ituzaingó', 'Comisión directiva', ['tel', '11 5555 0104', 'Sr. Benítez, presidente'], ['tel', '11 5555 0114', 'Tesorería']),
         ubicacion: 'Ituzaingó, Buenos Aires', fechaVenta: d(-28), plazo: 'fabricacion', fechaEntrega: d(2), estado: 'vendida', etapas: etapas('hockey', 0), checklist: check('hockey') },
-      { precio: 86000, sena: 25800, senaFecha: d(-28), ...fin11(d(2), 12), contratoFirmado: false, notasVenta: 'Falta que firme el presidente del club.' }, { pedido: '1038', vendedores: ['delfina'] });
+      { precio: 86000, sena: 25800, senaFecha: d(-28), ...fin11(d(2), 12), contratoFirmado: false, notasVenta: 'Falta que firme el presidente del club.' },
+      { pedido: '1038', vendedores: ['delfina'], blancoManual: 140, incluye: { arena: { provee: 'cliente' } } });
       obra('v5', { nombre: 'Padel Point Rosario – 3 canchas', ...cancha('padel_completa', 10, 20, 0, 'simple', 3), ...cesp('Textil pádel', 'azul'),
         ...cli('Padel Point SRL', '', ['tel', '341 555 0105', 'Oficina']), ubicacion: 'Rosario, Santa Fe', interior: true,
         logistica: window.OBRAS_LOGISTICA.map((texto, i) => ({ id: 'l' + i, texto, ok: false })), fechaVenta: d(-4), plazo: 'fabricacion', fechaEntrega: d(24), estado: 'vendida', etapas: etapas('padel_completa', 0), checklist: check('padel_completa') },
       { precio: 81000, sena: 40500, senaFecha: d(-4), formaPago: 'contado' },
-      { pedido: '1040', revendedor: { id: 'rv_rosario', nombre: 'Canchas Rosario', comisionPct: 8 }, senaForma: 'proveedor', senaDestino: 'polimetal' });
+      { pedido: '1040', revendedor: { id: 'rv_rosario', nombre: 'Canchas Rosario', comisionPct: 8 }, senaForma: 'proveedor', senaDestino: 'polimetal',
+        iva: { tipo: 'total', monto: 14058 }, tributos: [{ id: 'tr1', nombre: 'Percepción IIBB', monto: 1215 }] });
       pago('v5', d(-2), 'ARS', 1570000, 1570, 'cheque', 'cartera', 'Lo rechazó el banco: avisar al cliente', {
         cheques: [{ id: 'ch1', numero: '00412233', aNombreDe: 'Padel Point SRL', banco: 'Banco Macro', fechaCobro: d(-1), monto: 1570000, estado: 'rechazado', cobradoFecha: '', cobradoTC: 0 }] });
       obra('v6', { nombre: 'Sr. Gómez – césped sin instalación', ...cancha('futbol', 15, 20), ...cesp('Monofilamento 40 mm', 'verde'), conInstalacion: false,
         ...cli('', 'Ricardo Gómez', ['tel', '11 5555 0106', 'Ricardo']), ubicacion: 'Merlo, Buenos Aires', fechaVenta: d(-7), plazo: 'inmediata', fechaEntrega: d(-1), estado: 'vendida',
         etapas: etapas('futbol', 0, false, { conInstalacion: false }), checklist: check('futbol', false, { conInstalacion: false }) },
-      { precio: 3900, sena: 1950, senaFecha: d(-7), formaPago: 'contado' }, { sinSenaPago: true });
+      { precio: 3900, sena: 1950, senaFecha: d(-7), formaPago: 'contado' },
+      { sinSenaPago: true, incluye: { arena: { provee: 'cliente' }, caucho: { provee: 'cliente' }, pegamento: { provee: 'cliente' }, cinta: { provee: 'cliente' }, blanco: { provee: 'cliente' } } });
 
       /* ----- En entrega ----- */
       obra('e1', { nombre: 'Club Huracán – Cancha 1', ...cancha('futbol', 30, 60), ...cesp('Monofilamento 50 mm', 'verde'), ...cli('C. A. Huracán', 'Intendencia', ['tel', '11 5555 0201', 'Intendencia']),
         ubicacion: 'Parque Patricios, CABA', fechaVenta: d(-40), plazo: 'fabricacion', fechaEntrega: d(-12), estado: 'en_curso', habilitadaFecha: d(-14), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(-10), instFin: d(2), equipo: 'Equipo AMBA 1', responsable: CAR, flete: 'Transporte del Sur · llegó el ' + UI.fmtDay(d(-11)), etapas: etapas('futbol', 5, true, {}, -10), checklist: check('futbol') },
-      { precio: 38000, sena: 19000, senaFecha: d(-40), formaPago: 'contado' });
+      { precio: 38000, sena: 19000, senaFecha: d(-40), formaPago: 'contado' },
+      { formato: 'F9', blancoManual: 120, planos: [planoDemo('e1', 'Plano F9 · 30 × 60 m', 'Plano Huracán F9.jpg')], materiales: { pegamento: { cantidad: 8, unidad: 'baldes', porNombre: 'Carajo (demo)' }, cinta: { cantidad: 120, unidad: 'm', porNombre: 'Carajo (demo)' } } });
       pago('e1', d(-14), 'USD', 19000, 1545, 'efectivo_usd', 'caja_usd');
       obra('e2', { nombre: 'La Finca – Pádel 2 y 3', ...cancha('padel_completa', 10, 20, 0, 'simple', 2), ...cesp('Textil pádel', 'azul'), ...cli('La Finca Country', 'Administración', ['tel', '11 5555 0202', 'Administración']),
         ubicacion: 'Pilar, Buenos Aires', fechaVenta: d(-50), plazo: 'fabricacion', fechaEntrega: d(-6), estado: 'en_curso', habilitadaFecha: d(-8), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(-5), instFin: d(4), equipo: 'Equipo AMBA 2', responsable: BETO, etapas: etapas('padel_completa', 5, true, {}, -5), checklist: check('padel_completa') },
@@ -3040,7 +3558,7 @@
         ] });
       obra('e4', { nombre: 'Tenis Club Banfield – Cancha 3', ...cancha('tenis', 18.3, 36.6), ...cesp('Tenis arena 20 mm', 'verde'), ...cli('Tenis Club Banfield', '', ['tel', '11 5555 0204', 'Secretaría']),
         ubicacion: 'Banfield, Buenos Aires', fechaVenta: d(-30), plazo: 'fabricacion', fechaEntrega: d(1), estado: 'en_curso', habilitadaFecha: d(-2), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(2), instFin: d(4), equipo: 'Equipo AMBA 3', responsable: BETO, flete: 'A coordinar', etapas: etapas('tenis', 0), checklist: check('tenis') },
-      { precio: 14500, sena: 7250, senaFecha: d(-30), formaPago: 'contado' });
+      { precio: 14500, sena: 7250, senaFecha: d(-30), formaPago: 'contado' }, { blancoManual: 70 });
       pago('e4', d(-2), 'ARS', 11382500, 1570, 'cuenta', 'wmax');
       obra('e5', { nombre: 'Complejo La Cantera – F5 1 y 2', ...cancha('futbol', 20, 27.5, 0, 'simple', 2), ...cesp('Monofilamento 50 mm', 'verde'), ...cli('La Cantera SA', '', ['tel', '11 5555 0205', 'Oficina']),
         ubicacion: 'Moreno, Buenos Aires', fechaVenta: d(-22), plazo: 'fabricacion', fechaEntrega: d(6), estado: 'en_curso', habilitadaFecha: t, habilitadaPorNombre: 'Delfina (demo)', responsable: BETO, etapas: etapas('futbol', 0), checklist: check('futbol') },
@@ -3048,7 +3566,7 @@
       pago('e5', t, 'USD', 15250, 1570, 'efectivo_usd', 'caja_usd');
       obra('e6', { nombre: 'Colegio Sarmiento – Multisport', ...cancha('futbol', 18, 25), ...cesp('Multisport', 'verde y rojo', true), ...cli('Colegio Sarmiento', '', ['tel', '11 5555 0206', 'Secretaría']),
         ubicacion: 'Haedo, Buenos Aires', fechaVenta: d(-25), plazo: 'fabricacion', fechaEntrega: d(1), estado: 'en_curso', habilitadaFecha: d(-1), instInicio: d(1), instFin: d(3), equipo: 'Equipo AMBA 1', responsable: CAR, etapas: etapas('futbol', 0), checklist: check('futbol') },
-      { precio: 9800, sena: 4900, senaFecha: d(-25), formaPago: 'contado' });
+      { precio: 9800, sena: 4900, senaFecha: d(-25), formaPago: 'contado' }, { bicolorExtra: 12 });
       pago('e6', d(-1), 'USD', 4900, 1570, 'cuenta', 'wmax');
       obra('e7', { nombre: 'Tercer Tiempo – Mantenimiento F5', tipo: 'mantenimiento', m2: 800, ...cli('Tercer Tiempo', 'Diego', ['tel', '11 5555 0207', 'Diego, dueño']),
         ubicacion: 'Morón, Buenos Aires', fechaVenta: d(-3), plazo: 'inmediata', fechaEntrega: d(8), estado: 'en_curso', habilitadaFecha: d(-1), instInicio: d(8), instFin: d(8), equipo: 'Equipo AMBA 3', responsable: TOM, etapas: etapas('mantenimiento', 0),
@@ -3072,9 +3590,10 @@
       { precio: 104000, sena: 31200, senaFecha: d(-70), ...fin11(d(-40)), contratoFirmado: true, contratoFecha: d(-30) });
       pago('t3', d(-40), 'USD', 7346.18, 1550, 'cuenta', 'wmax', 'Cuota 1');
       const fin4 = UI.addMonths(d(-10), -12);
-      obra('t4', { nombre: 'Barrio Los Álamos – Residencial', tipo: 'residencial', m2: 140, ...cesp('Paisajismo 40 mm', 'verde'), conArena: false, ...cli('', 'Familia Ortiz', ['tel', '11 5555 0210', 'Sra. Ortiz']),
+      obra('t4', { nombre: 'Barrio Los Álamos – Residencial', tipo: 'residencial', m2: 140, ...cesp('Multisport', 'verde'), ...cli('', 'Familia Ortiz', ['tel', '11 5555 0210', 'Sra. Ortiz']),
         ubicacion: 'Canning, Buenos Aires', fechaVenta: UI.addDays(fin4, -15), fechaEntrega: fin4, instInicio: fin4, instFin: fin4, equipo: 'Equipo AMBA 3', estado: 'terminada', fin: fin4, etapas: etapas('residencial', 8, false, {}, -380), checklist: check('residencial', true), postventa: pv(fin4, 3), garantiaAnios: 2, garantiaMeses: 24 },
-      { precio: 3200, sena: 1600, senaFecha: UI.addDays(fin4, -15), formaPago: 'contado' });
+      { precio: 3200, sena: 1600, senaFecha: UI.addDays(fin4, -15), formaPago: 'contado' },
+      { clienteColocaArena: true, planos: [planoDemo('t4', 'Plano jardín · 140 m²', 'Plano jardín Ortiz.jpg')] });
       pago('t4', UI.addDays(fin4, -2), 'USD', 1600, 1000, 'efectivo_usd', 'caja_usd');
 
       /* ----- Fotos ----- */
