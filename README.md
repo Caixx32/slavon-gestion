@@ -16,13 +16,29 @@ Apps web internas de **SLAVON**. Cada app tiene su propio link, pero todas compa
 
 De la venta a la post-venta:
 
-1. **Venta** (administrativo): tipo de cancha y de césped, m², cantidad de canchas, con o sin instalación, arena, caucho, plano y consideraciones. Plazo inmediato (~5 días) o fabricación (20 a 30 días), que propone la fecha de entrega. Precio y seña en US$ (se paga en pesos al dólar oficial Banco Nación vendedor del día). El dólar lo baja sola una tarea automática del repo (`.github/workflows/dolar-bna.yml`) desde bna.com.ar cada 15 minutos, de lunes a viernes de 9 a 18, a `shared/bna.json` (cotización billete, columna venta, con histórico por día); la app lo usa para mostrar los pesos y guardar el TC de cada cobro.
-2. **Condición para entregar:** contado → saldo cobrado antes de la entrega de materiales; financiado → contrato firmado en nuestro poder. 7 días antes de la entrega avisa lo que falte. Sin eso no se habilita la entrega.
+1. **Venta** (administrativo):
+   - **Cliente:** nombre de la persona y/o club (con uno alcanza), varios teléfonos y mails, cada uno con de quién es (ej: «Juan, dueño», «Pepe, encargado»), ubicación.
+   - **Cancha:** tipo y cantidad de canchas. Residencial (y mantenimiento u otro) se cargan en m²; las canchas, con ancho × largo + blanco y demarcación simple o doble, y los m² salen solos.
+   - **Césped:** desplegable con los modelos de cada deporte (Multisport es un césped dentro de fútbol, hockey y residencial), monocolor o bicolor, colores.
+   - **Incluye el presupuesto:** instalación, arena y caucho; con eso se arman las etapas.
+   - **Plano adjunto** (foto o PDF de hasta 650 KB) y consideraciones.
+   - **Plazo:** inmediato (~5 días), fabricación (20 a 30 días) u otro (se escribe cuál). Propone la fecha de entrega.
+   - **Garantía en años.**
+   - **Plata:** primero contado o financiado y la moneda (US$ o $); después el precio y la seña o anticipo. Los importes se escriben y se muestran con punto de miles (10.000).
+   - **Financiado:** por defecto 11 cuotas con 1 % mensual sobre el saldo (precio − anticipo). Ejemplo: 10 − 2 = 8 + 11 % = 8,88 en 11 cuotas. Se ven las fechas de cada cuota desde la primera.
+   - **Dólar BNA:** lo baja sola una tarea automática del repo (`.github/workflows/dolar-bna.yml`) desde bna.com.ar cada 15 minutos, de lunes a viernes de 9 a 18, a `shared/bna.json` (cotización billete, columna venta, con histórico por día).
+2. **Cobros y condición para entregar:**
+   - **Registrar pago:** parcial o total, en dólares o en pesos, con cómo pagó, dónde (cuenta o caja) y el dólar BNA de ese día. Un pago en otra moneda se pasa solo a la de la venta.
+   - **Pagos mal cargados:** se anulan (quedan tachados, con quién y por qué), no se borran.
+   - **Contado:** se puede entregar recién con el saldo cobrado completo.
+   - **Financiado:** se puede entregar con el contrato firmado en nuestro poder; los pagos van cubriendo las cuotas en orden y se ve cuáles están vencidas.
+   - **Aviso:** 7 días antes de la entrega avisa lo que falte.
+   - **Buscador de clientes** en cada área: por nombre, club, obra, teléfono o mail.
 3. **Entrega** (encargado de obra): agenda de instalación con equipo (3 de AMBA + instaladores del interior) y aviso si un equipo queda en dos obras a la vez; duración sugerida (pádel completa 5 días por cancha, pádel césped 1). Flete, logística del interior (pasajes, estadía, comidas, ayudantes, viático), etapas con fotos, incidencias (ej: base no apta, con aviso al cliente) y checklist de entrega.
 4. **Acta de entrega** para imprimir o guardar en PDF y que firme el cliente: datos, controles, fotos y garantía.
 5. **Post-venta:** llamados al mes, a los 6 meses y al año, y control del vencimiento de la garantía.
 
-Tipos: fútbol, pádel solo césped, pádel cancha completa, hockey, tenis, residencial, multisport, mantenimiento (sólo clientes nuestros) y otro. Las etapas se arman según el tipo y lo vendido (arena, caucho, con o sin instalación) y se pueden editar en cada obra.
+Tipos: fútbol, pádel solo césped, pádel cancha completa, hockey, tenis, residencial, mantenimiento (sólo clientes nuestros) y otro. Las etapas se arman según el tipo y lo vendido (arena, caucho, con o sin instalación) y se pueden editar en cada obra.
 
 ### Permisos
 
@@ -54,8 +70,8 @@ Un usuario por persona para todas las apps: *Obras → Más → Usuarios y permi
 | Carpeta / archivo | Qué tiene |
 |---|---|
 | `shared/` | Lo común a todas las apps: configuración de Firebase, conexión, login y permisos, pantalla de usuarios, estilos, íconos. |
-| `obras/` | App Obras (`app.js`), tipos de obra y etapas (`etapas.js`), estilos propios, app instalable (`sw.js`, `manifest.webmanifest`). |
-| `firestore.rules` | Reglas de seguridad para pegar en Firebase. |
+| `obras/` | App Obras (`app.js`), tipos de obra, etapas y modelos de césped (`etapas.js`), cuentas de la venta: m², cuotas e importes (`calculos.js`), estilos propios, app instalable (`sw.js`, `manifest.webmanifest`). |
+| `firestore.rules` | Reglas de seguridad para pegar en Firebase (incluye los pagos). |
 
 HTML, CSS y JavaScript sin compilación. Firebase (Auth + Firestore) por CDN. Las fotos se guardan comprimidas dentro de Firestore (no hace falta Firebase Storage ni plan pago).
 

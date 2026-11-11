@@ -9,9 +9,10 @@
 .pct { font-size: 17px; color: var(--red); }
 .obra-card h3 { font-size: 16px; }
 
-.info .info-row { display: grid; grid-template-columns: 96px 1fr; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 15px; }
+.info .info-row { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 15px; }
 .info .info-row:first-child { border-top: 0; }
-.info .info-row > span { font-size: 13px; font-weight: 600; padding-top: 2px; }
+.info .info-row > span { font-size: 13px; font-weight: 600; padding-top: 2px; overflow-wrap: anywhere; hyphens: auto; }
+.info .info-row > div { min-width: 0; overflow-wrap: anywhere; }
 .info a { color: var(--blue); }
 
 .dot {
@@ -145,3 +146,20 @@ body.wide main { max-width: 1320px; }
 .stepper { margin-bottom: 16px; }
 .step-short { display: none; }
 @media (max-width: 520px) { .step-name { display: none; } .step-short { display: inline; } }
+
+/* ---------- Venta: buscador, contactos, cálculos y cuotas ---------- */
+.buscador { margin: 14px 0 4px; }
+.field-title { font-size: 13px; font-weight: 600; color: var(--muted); margin: 4px 0 8px; }
+.calc { background: var(--card-2); border-radius: 10px; padding: 9px 12px; margin: -4px 0 14px; font-size: 14px; display: grid; gap: 3px; }
+.contacto { display: grid; grid-template-columns: 20px minmax(0, 1.25fr) minmax(0, 1fr) auto; gap: 6px; align-items: center; margin-bottom: 8px; }
+.contacto input { width: 100%; min-width: 0; border: 1px solid var(--field-line); background: var(--field); border-radius: 10px; padding: 9px 10px; font-size: 15px; outline: none; }
+.contacto input:focus { border-color: var(--red); }
+.contacto .btn.small { padding: 7px 6px; }
+.contacto-ico { color: var(--muted); display: grid; place-items: center; }
+.contacto-ver { display: flex; align-items: center; gap: 4px; }
+.contacto-ver .grow { min-width: 0; overflow-wrap: anywhere; }
+.contacto-ver + .contacto-ver { margin-top: 2px; }
+.contacto-ver .btn.small { padding: 5px 7px; }
+.cuotas-mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 14px; margin-top: 4px; font-size: 13px; }
+.cuotas { margin: 16px 0 0; }
+.cuotas summary { cursor: pointer; padding: 6px 0 10px; font-size: 16px; }

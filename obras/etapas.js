@@ -4,20 +4,34 @@
  * Tipos de trabajo, cómo se arman sus etapas y el checklist de entrega por defecto.
  * Al crear una obra se copian estas etapas; después se pueden editar en cada obra.
  *
- * arena / caucho: lo que lleva normalmente cada tipo (en la venta se puede cambiar).
+ * arena / caucho: lo que incluye normalmente el presupuesto de cada tipo (en la venta se puede cambiar).
  * dias: duración sugerida de la instalación por cancha (null = depende de la medida).
+ * medida: 'cancha' = ancho × largo + blanco · 'm2' = se cargan los m² directo.
+ * cesped: qué lista de modelos de césped se ofrece (OBRAS_CESPEDES).
+ * oculto: ya no se ofrece al vender, pero se sigue mostrando en las obras viejas.
  */
 
 window.OBRAS_TIPOS = {
-  futbol: { nombre: 'Fútbol', arena: true, caucho: true, dias: null },
-  padel_cesped: { nombre: 'Pádel – solo césped', arena: true, caucho: false, dias: 1 },
-  padel_completa: { nombre: 'Pádel – cancha completa', arena: true, caucho: false, dias: 5, estructura: true },
-  hockey: { nombre: 'Hockey', arena: true, caucho: false, dias: null },
-  tenis: { nombre: 'Tenis', arena: true, caucho: false, dias: null },
-  residencial: { nombre: 'Residencial', arena: false, caucho: false, dias: 1 },
-  multisport: { nombre: 'Multisport', arena: true, caucho: false, dias: null },
-  mantenimiento: { nombre: 'Mantenimiento (clientes nuestros)', arena: false, caucho: false, dias: 1, mantenimiento: true },
-  otro: { nombre: 'Otro', arena: false, caucho: false, dias: null },
+  futbol: { nombre: 'Fútbol', arena: true, caucho: true, dias: null, medida: 'cancha', cesped: 'futbol' },
+  padel_cesped: { nombre: 'Pádel – solo césped', arena: true, caucho: false, dias: 1, medida: 'cancha', cesped: 'padel' },
+  padel_completa: { nombre: 'Pádel – cancha completa', arena: true, caucho: false, dias: 5, estructura: true, medida: 'cancha', cesped: 'padel' },
+  hockey: { nombre: 'Hockey', arena: true, caucho: false, dias: null, medida: 'cancha', cesped: 'hockey' },
+  tenis: { nombre: 'Tenis', arena: true, caucho: false, dias: null, medida: 'cancha', cesped: 'tenis' },
+  residencial: { nombre: 'Residencial', arena: false, caucho: false, dias: 1, medida: 'm2', cesped: 'residencial' },
+  // Multisport ya no es un tipo de obra: es un césped dentro de fútbol, hockey y residencial.
+  multisport: { nombre: 'Multisport', arena: true, caucho: false, dias: null, medida: 'cancha', cesped: 'futbol', oculto: true },
+  mantenimiento: { nombre: 'Mantenimiento (clientes nuestros)', arena: false, caucho: false, dias: 1, mantenimiento: true, medida: 'm2' },
+  otro: { nombre: 'Otro', arena: false, caucho: false, dias: null, medida: 'm2' },
+};
+
+// Modelos de césped que se ofrecen en la venta según el deporte (siempre hay además «Otro» para escribirlo).
+// PENDIENTE: son los de la demo; reemplazar por la lista real de modelos de Slavon.
+window.OBRAS_CESPEDES = {
+  futbol: ['Monofilamento 40 mm', 'Monofilamento 50 mm', 'Multisport'],
+  hockey: ['Hockey arena 22 mm', 'Multisport'],
+  residencial: ['Paisajismo 35 mm', 'Paisajismo 40 mm', 'Multisport'],
+  padel: ['Fibrilado 12 mm', 'Textil pádel'],
+  tenis: ['Tenis arena 20 mm'],
 };
 
 // Etapas según el tipo y lo vendido (con o sin instalación, arena, caucho).
@@ -85,8 +99,12 @@ window.OBRAS_POSTVENTA = [
   { id: '1a', label: '1 año', meses: 12 },
 ];
 
-// Plazos de entrega que se ofrecen al vender.
+// Plazos de entrega que se ofrecen al vender (dias: propone la fecha de entrega; null = se escribe cuál).
 window.OBRAS_PLAZOS = {
   inmediata: { nombre: 'Entrega inmediata (~5 días)', dias: 5 },
   fabricacion: { nombre: 'Fabricación (20 a 30 días)', dias: 25 },
+  otro: { nombre: 'Otro (especificar)', dias: null },
 };
+
+// Cómo se puede pagar (para registrar cada cobro).
+window.OBRAS_MEDIOS_PAGO = ['Efectivo', 'Transferencia', 'Depósito', 'Cheque', 'Mercado Pago', 'Tarjeta', 'Otro'];
