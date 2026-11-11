@@ -101,7 +101,12 @@ Cada pago guarda:
 - [x] Al marcarlo **cobrado**: cargar la **fecha real** y la **cotización del día de cobro**. El equivalente en US$ se recalcula con esa cotización.
 
 ### Recibo
-- [x] Botón **"Recibo PDF"** en cada pago (imprimir o descargar).
+- [x] Botón **"Recibo PDF"** en cada pago (imprimir o descargar). _Funciona; falta pasarlo al formato de Slavon (ver Pendientes)._
+
+### Correcciones después de probar la Fase 1
+- [x] **Seña pactada vs cobrada**: en Cobros se ve «Seña pactada · Cobrado de seña · Falta de seña». En «Registrar seña» se ve arriba lo pactado con su equivalente en la moneda elegida, y si lo cobrado no coincide pregunta «¿Actualizar la seña pactada a este monto?».
+- [x] **Efectivo retirado**: si la forma es efectivo, «¿Lo fuimos a buscar?» y, si es sí, quién lo retiró y dónde (también en el recibo).
+- [x] **N° de pedido siempre visible** al lado del cliente o club: listas, fichas, buscador, acta y recibos (pantalla y PDF).
 
 ---
 
@@ -169,6 +174,12 @@ Cada pago guarda:
 - [ ] Dentro: **planilla del cliente** (venta + detalle de saldo) y subcarpetas **Comprobantes**, **Planos**, **Remitos**, **Fotos de obra**.
 - [ ] Los comprobantes, planos y remitos que se suben en la app se guardan también ahí.
 - [ ] Definir si la app guarda los archivos **directamente en Drive** o en su propia base y los **copia** a Drive.
+
+---
+
+## Pendientes (no programar todavía)
+
+- [ ] **Recibo con el formato de Slavon** (Juan pasa el modelo).
 
 ---
 

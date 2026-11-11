@@ -182,3 +182,10 @@ body.wide main { max-width: 1320px; }
 .chip-toggle.nuevo { border-style: dashed; color: var(--muted); }
 .cliente-elegido { display: flex; align-items: center; gap: 10px; background: var(--ok-soft); border-radius: 12px; padding: 10px 12px; }
 .cliente-elegido > .i { color: var(--ok); flex: none; }
+
+/* ---------- N° de pedido al lado del cliente ---------- */
+.titulo-obra { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-weight: 600; }
+.titulo-obra > .ellipsis { min-width: 0; }
+.board-card .titulo-obra { font-weight: 700; }
+.pedido { flex: none; font-size: 12px; font-weight: 700; color: var(--muted); background: var(--card-2); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+.sena-box { background: var(--card-2); box-shadow: none; }
