@@ -163,3 +163,22 @@ body.wide main { max-width: 1320px; }
 .cuotas-mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 14px; margin-top: 4px; font-size: 13px; }
 .cuotas { margin: 16px 0 0; }
 .cuotas summary { cursor: pointer; padding: 6px 0 10px; font-size: 16px; }
+
+/* ---------- Pagos, cheques y recibo ---------- */
+.pago-item { align-items: flex-start; }
+.pago-item > .btn { align-self: center; }
+.cheque { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 2px; margin-bottom: 10px; background: var(--card-2); }
+.historial { margin: 4px 0 12px; }
+.historial summary { cursor: pointer; margin-bottom: 4px; }
+.recibo-texto { font-size: 16px; line-height: 1.55; margin: 18px 0; }
+.catalogo-item.baja { opacity: .55; }
+
+/* ---------- Catálogos y venta: vendedores, cliente del catálogo ---------- */
+.seg-scroll { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+.seg-scroll button { white-space: nowrap; flex: none; }
+.chip-toggle { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--field-line); background: var(--field); color: inherit; border-radius: 99px; padding: 7px 13px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.chip-toggle .i { width: 15px; height: 15px; }
+.chip-toggle.on { background: var(--text); color: var(--card); border-color: var(--text); }
+.chip-toggle.nuevo { border-style: dashed; color: var(--muted); }
+.cliente-elegido { display: flex; align-items: center; gap: 10px; background: var(--ok-soft); border-radius: 12px; padding: 10px 12px; }
+.cliente-elegido > .i { color: var(--ok); flex: none; }

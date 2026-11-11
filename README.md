@@ -17,7 +17,9 @@ Apps web internas de **SLAVON**. Cada app tiene su propio link, pero todas compa
 De la venta a la post-venta:
 
 1. **Venta** (administrativo):
-   - **Cliente:** nombre de la persona y/o club (con uno alcanza), varios teléfonos y mails, cada uno con de quién es (ej: «Juan, dueño», «Pepe, encargado»), ubicación.
+   - **Vendedor:** uno o varios, del catálogo. Si lo vendió un revendedor, se elige del catálogo y se ve la comisión (% editable en cada venta, monto sobre el presupuesto).
+   - **Cliente:** se elige del catálogo o se crea desde la misma pantalla (si ya hay uno parecido, avisa). Nombre de la persona y/o club (al menos uno), varios teléfonos y mails, cada uno con de quién es (ej: «Juan, dueño», «Pepe, encargado»), ubicación. Si se cambia un dato del cliente, se actualiza en todas sus obras.
+   - **N° de pedido** (opcional, se puede buscar).
    - **Cancha:** tipo y cantidad de canchas. Residencial (y mantenimiento u otro) se cargan en m²; las canchas, con ancho × largo + blanco y demarcación simple o doble, y los m² salen solos.
    - **Césped:** desplegable con los modelos de cada deporte (Multisport es un césped dentro de fútbol, hockey y residencial), monocolor o bicolor, colores.
    - **Incluye el presupuesto:** si incluye la instalación y, para la arena y el caucho, si los compra el cliente (y los instalamos nosotros), si los vendemos nosotros o si no lleva. Por defecto la arena la compra el cliente y el caucho lo vendemos. Con eso se arman las etapas.
@@ -28,12 +30,17 @@ De la venta a la post-venta:
    - **Financiado:** por defecto 11 cuotas con 1 % mensual sobre el saldo (precio − anticipo). Ejemplo: 10 − 2 = 8 + 11 % = 8,88 en 11 cuotas. Se ven las fechas de cada cuota desde la primera.
    - **Dólar BNA:** lo baja sola una tarea automática del repo (`.github/workflows/dolar-bna.yml`) desde bna.com.ar cada 15 minutos, de lunes a viernes de 9 a 18, a `shared/bna.json` (cotización billete, columna venta, con histórico por día).
 2. **Cobros y condición para entregar:**
-   - **Registrar pago:** parcial o total, en dólares o en pesos, con cómo pagó, dónde (cuenta o caja) y el dólar BNA de ese día. Un pago en otra moneda se pasa solo a la de la venta.
-   - **Pagos mal cargados:** se anulan (quedan tachados, con quién y por qué), no se borran.
-   - **Contado:** se puede entregar recién con el saldo cobrado completo.
+   - **Saldo:** siempre es presupuesto − suma de los pagos (financiado: anticipo + cuotas − pagos). Ningún botón ni tilde lo cierra: queda en cero sólo cuando lo pagado alcanza.
+   - **La seña o el anticipo es un pago:** al cargar la venta se abre «Registrar seña» para completar cómo y dónde se pagó.
+   - **Registrar pago** (parcial o total): fecha, monto y moneda (US$ o $), dólar BNA del día (editable), equivalente en la otra moneda, forma de pago y dónde (transferencia a proveedor y su cuenta, cuenta nuestra, efectivo pesos o dólares con su caja, o cheques), comprobantes (fotos o PDF), «registrado en nuestros registros» y, si entró a W. MAX o Atlantis, si ya tiene factura o hay que solicitarla.
+   - **Cheques:** uno o varios por pago (n°, a nombre de, banco, fecha de cobro, monto). Pendiente: cuenta con el dólar del día en que se recibió. Cobrado: se carga la fecha real y el dólar de ese día, y se recalcula. Rechazado: deja de contar y el saldo vuelve.
+   - **Pagos mal cargados:** se editan (queda el historial de quién cambió qué) o se borran. Sólo admin y administración.
+   - **Recibo PDF** de cada pago, con número correlativo, monto en letras y saldo: se descarga o se imprime. Para sacar el número hace falta conexión.
+   - **Contado:** se puede entregar recién con el saldo en cero.
    - **Financiado:** se puede entregar con el contrato firmado en nuestro poder; los pagos van cubriendo las cuotas en orden y se ve cuáles están vencidas.
    - **Aviso:** 7 días antes de la entrega avisa lo que falte.
-   - **Buscador de clientes** en cada área: por nombre, club, obra, teléfono o mail.
+   - **Buscador de clientes** en cada área: por nombre, club, obra, teléfono, mail o n° de pedido.
+   - **Catálogos** (*Más → Catálogos*): vendedores, revendedores (con su % de comisión), clientes, proveedores (con sus cuentas bancarias) y cuentas propias (W. MAX SRL, Atlantis, cajas de efectivo). No se borran: se dan de baja.
 3. **Entrega** (encargado de obra): agenda de instalación con equipo (3 de AMBA + instaladores del interior) y aviso si un equipo queda en dos obras a la vez; duración sugerida (pádel completa 5 días por cancha, pádel césped 1). Flete, logística del interior (pasajes, estadía, comidas, ayudantes, viático), etapas con fotos, incidencias (ej: base no apta, con aviso al cliente) y checklist de entrega.
 4. **Acta de entrega** para imprimir o guardar en PDF y que firme el cliente: datos, controles, fotos y garantía.
 5. **Post-venta:** llamados al mes, a los 6 meses y al año, y control del vencimiento de la garantía.
@@ -44,12 +51,14 @@ Tipos: fútbol, pádel solo césped, pádel cancha completa, hockey, tenis, resi
 
 | | Admin | Administrativo | Encargado de obra |
 |---|:-:|:-:|:-:|
-| Ver precios, señas, saldos y contratos | ✔ | ✔ | ✘ |
+| Ver precios, señas, saldos, pagos, cheques, comprobantes y contratos | ✔ | ✔ | ✘ |
+| Registrar, editar y borrar pagos; recibos | ✔ | ✔ | ✘ |
+| Catálogos (vendedores, revendedores, clientes, proveedores, cuentas) | ✔ | ✔ | ✘ |
 | Cargar ventas, habilitar entregas, post-venta | ✔ | ✔ | ✘ |
 | Agenda, equipos, etapas, fotos, checklist, logística, incidencias, marcar entregada | ✔ | ✔ | ✔ |
 | Eliminar obras | ✔ | ✘ | ✘ |
 
-Los datos de plata están en una colección aparte (`ventas`) que el encargado de obra no puede leer: lo imponen las reglas de Firestore (`firestore.rules`), no sólo la pantalla.
+Los datos de plata están en una colección aparte (`ventas`, con sus pagos y comprobantes adentro) que el encargado de obra no puede leer, igual que los catálogos: lo imponen las reglas de Firestore (`firestore.rules`), no sólo la pantalla.
 
 ## Usuarios
 
@@ -69,7 +78,7 @@ Un usuario por persona para todas las apps: *Obras → Más → Usuarios y permi
 
 | Carpeta / archivo | Qué tiene |
 |---|---|
-| `shared/` | Lo común a todas las apps: configuración de Firebase, conexión, login y permisos, pantalla de usuarios, estilos, íconos. |
+| `shared/` | Lo común a todas las apps: configuración de Firebase, conexión, login y permisos, pantalla de usuarios, estilos, íconos. En `shared/vendor/` va jsPDF (licencia MIT) para armar los PDF sin conexión. |
 | `obras/` | App Obras (`app.js`), tipos de obra, etapas y modelos de césped (`etapas.js`), cuentas de la venta: m², cuotas e importes (`calculos.js`), estilos propios, app instalable (`sw.js`, `manifest.webmanifest`). |
 | `firestore.rules` | Reglas de seguridad para pegar en Firebase (incluye los pagos). |
 
@@ -77,7 +86,14 @@ HTML, CSS y JavaScript sin compilación. Firebase (Auth + Firestore) por CDN. La
 
 ## Datos en Firestore
 
-`users/{mail}` (nombre, apps y permisos, activo) · `obras` (datos operativos, `etapas`, `checklist`, `incidencias`, `logistica`, `postventa`) · `ventas/{id de la obra}` (precio, seña, forma de pago, saldo, contrato) · `fotos` (una por documento, con `obraId` y `etapaId`) · `config/obras` (equipos de instalación).
+- `users/{mail}`: nombre, apps y permisos, activo.
+- `obras/{id}`: datos operativos (sin plata), copia del cliente (`clienteId`, nombre, club, contactos), n° de pedido, `etapas`, `checklist`, `incidencias`, `logistica`, `postventa`.
+- `ventas/{id de la obra}`: la plata, sólo admin y administración. Presupuesto, moneda, seña o anticipo pactado, forma de pago, cuotas, vendedores, revendedor y contrato.
+  - `ventas/{id}/pagos/{id}`: cada pago (también la seña): fecha, moneda, monto, dólar, equivalente, valor en la moneda de la venta, forma, destino, cheques, comprobantes, registrado, factura, n° de recibo, historial.
+  - `ventas/{id}/comprobantes/{id}`: archivo de cada comprobante.
+- Catálogos (sólo admin y administración, con `activo`): `vendedores`, `revendedores`, `clientes`, `proveedores` (con `cuentas`), `cuentas` (cuentas propias y cajas).
+- `fotos`: una por documento, con `obraId` y `etapaId`; los planos también, con `tipo: 'plano'`.
+- `config/obras`: equipos de instalación. `config/contadores`: último n° de recibo.
 
 ## Actualizar una app
 

@@ -60,25 +60,50 @@ service cloud.firestore {
           && request.resource.data.editadoPor == myEmail());
     }
 
-    // Plata de cada venta (precio, seña, forma de pago, saldo, contrato): sólo admin y administrativo.
+    // Plata de cada venta (precio, forma de pago, cuotas, vendedores, revendedor, contrato): sólo admin y administrativo.
+    // Adentro de cada venta están sus pagos (con los cheques) y los comprobantes: mismo permiso.
+    // Los encargados de obra no leen nada de esto.
     match /ventas/{id} {
       allow read, create, update: if obrasGestion();
       allow delete: if obrasAdmin();
+
+      // Pagos (también la seña o anticipo). Se editan y se borran: sólo admin y administrativo.
+      match /pagos/{pagoId} {
+        allow read, delete: if obrasGestion();
+        allow create, update: if obrasGestion()
+          && request.resource.data.obraId == id
+          && request.resource.data.monto is number && request.resource.data.monto > 0
+          && request.resource.data.moneda in ['USD', 'ARS']
+          && request.resource.data.forma in ['proveedor', 'cuenta', 'efectivo_ars', 'efectivo_usd', 'cheque'];
+      }
+
+      // Comprobantes de los pagos (foto o PDF guardado como texto, menos de ~650 KB).
+      match /comprobantes/{archivoId} {
+        allow read, delete: if obrasGestion();
+        allow create: if obrasGestion()
+          && request.resource.data.obraId == id
+          && request.resource.data.data is string
+          && request.resource.data.data.size() < 900000;
+        allow update: if false;
+      }
     }
 
-    // Cobros de cada venta (parciales o totales, en dólares o pesos): sólo admin y administrativo.
-    // Un pago no se edita: si estuvo mal se anula (queda registrado quién y por qué). Borrar sólo admin.
-    match /pagos/{id} {
+    // Para leer los pagos de todas las ventas juntos (saldos en las listas de Administración).
+    match /{ruta=**}/pagos/{pagoId} {
       allow read: if obrasGestion();
-      allow create: if obrasGestion()
-        && request.resource.data.por == myEmail()
-        && request.resource.data.obraId is string
-        && request.resource.data.monto is number && request.resource.data.monto > 0
-        && request.resource.data.moneda in ['USD', 'ARS'];
-      allow update: if obrasGestion()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['anulado', 'anuladoPor', 'anuladoPorNombre', 'anuladoFecha', 'anuladoMotivo'])
-        && request.resource.data.anuladoPor == myEmail();
-      allow delete: if obrasAdmin();
+    }
+
+    // Catálogos: vendedores, revendedores (con su comisión), clientes, proveedores (con sus cuentas) y cuentas propias.
+    // Sólo admin y administrativo. No se borran: se dan de baja (activo = false) para no romper las ventas viejas.
+    match /vendedores/{id} { allow read, create, update: if obrasGestion(); allow delete: if obrasAdmin(); }
+    match /revendedores/{id} { allow read, create, update: if obrasGestion(); allow delete: if obrasAdmin(); }
+    match /clientes/{id} { allow read, create, update: if obrasGestion(); allow delete: if obrasAdmin(); }
+    match /proveedores/{id} { allow read, create, update: if obrasGestion(); allow delete: if obrasAdmin(); }
+    match /cuentas/{id} { allow read, create, update: if obrasGestion(); allow delete: if obrasAdmin(); }
+
+    // Números correlativos (recibos).
+    match /config/contadores {
+      allow read, write: if obrasGestion();
     }
 
     // Fotos de la obra y planos adjuntos en la venta (tipo «plano»).

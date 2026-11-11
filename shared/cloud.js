@@ -74,6 +74,24 @@ window.SGCloud = (() => {
       return fb.onSnapshot(ref(col, id), (snap) => cb(snap.exists() ? withId(snap) : null), onError);
     }
 
+    // Todas las subcolecciones con ese nombre, de todos los documentos (ej: los pagos de todas las ventas).
+    function subscribeGroup(name, cb, onError) {
+      return fb.onSnapshot(fb.collectionGroup(db, name), { includeMetadataChanges: true }, (snap) => {
+        cb(snap.docs.map(withId), { fromCache: snap.metadata.fromCache, pending: snap.metadata.hasPendingWrites });
+      }, onError);
+    }
+
+    // Siguiente número de una serie (ej: recibos). Necesita conexión: dos personas no pueden sacar el mismo número.
+    function nextNumber(key) {
+      const r = ref('config', 'contadores');
+      return fb.runTransaction(db, async (tx) => {
+        const snap = await tx.get(r);
+        const n = ((snap.exists() && snap.data()[key]) || 0) + 1;
+        tx.set(r, { [key]: n }, { merge: true });
+        return n;
+      });
+    }
+
     // Varias escrituras juntas: se guarda todo o nada. Sin señal quedan en cola y se suben solas.
     function write(ops) {
       const b = fb.writeBatch(db);
@@ -89,7 +107,7 @@ window.SGCloud = (() => {
     }
 
     return {
-      init, onAuth, signIn, signOut: () => fb.signOut(auth), subscribe, subscribeDoc, write,
+      init, onAuth, signIn, signOut: () => fb.signOut(auth), subscribe, subscribeDoc, subscribeGroup, nextNumber, write,
       newId: () => fb.doc(fb.collection(db, '_')).id,
       serverTime: () => fb.serverTimestamp(),
     };
@@ -132,6 +150,23 @@ window.SGCloud = (() => {
       return () => subs.delete(run);
     }
 
+    // Subcolecciones con ese nombre en cualquier documento: las claves son «ventas/{id}/pagos».
+    function subscribeGroup(name, cb) {
+      const run = () => cb(Object.keys(data).filter((k) => k === name || k.endsWith('/' + name))
+        .flatMap((k) => Object.entries(data[k]).map(([id, d]) => withId(id, d))), { fromCache: false, pending: false });
+      subs.add(run);
+      setTimeout(run, 0);
+      return () => subs.delete(run);
+    }
+
+    function nextNumber(key) {
+      const c = col('config');
+      c.contadores = c.contadores || {};
+      c.contadores[key] = (c.contadores[key] || 0) + 1;
+      save();
+      return Promise.resolve(c.contadores[key]);
+    }
+
     function write(ops) {
       for (const o of ops) {
         const c = col(o.col);
@@ -157,7 +192,7 @@ window.SGCloud = (() => {
       onAuth: (cb) => { setTimeout(() => cb(user()), 0); return () => {}; },
       signIn: async () => {},
       signOut: async () => { sessionStorage.removeItem('sg-demo'); location.href = location.pathname; },
-      subscribe, subscribeDoc, write,
+      subscribe, subscribeDoc, subscribeGroup, nextNumber, write,
       newId: () => Math.random().toString(36).slice(2, 12) + Date.now().toString(36),
       serverTime: () => new Date().toISOString(),
       // Para cargar datos de ejemplo la primera vez.

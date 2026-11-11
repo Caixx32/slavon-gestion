@@ -110,5 +110,11 @@ window.OBRAS_PLAZOS = {
   otro: { nombre: 'Otro (especificar)', dias: null },
 };
 
-// Cómo se puede pagar (para registrar cada cobro).
-window.OBRAS_MEDIOS_PAGO = ['Efectivo', 'Transferencia', 'Depósito', 'Cheque', 'Mercado Pago', 'Tarjeta', 'Otro'];
+// Formas de pago de cada cobro. El «dónde» sale de la forma: proveedor y su cuenta, cuenta nuestra o caja.
+window.OBRAS_FORMAS_PAGO = [
+  ['cuenta', 'Cuenta nuestra'],
+  ['proveedor', 'Transferencia a proveedor'],
+  ['efectivo_ars', 'Efectivo pesos'],
+  ['efectivo_usd', 'Efectivo dólares'],
+  ['cheque', 'Cheque'],
+];
