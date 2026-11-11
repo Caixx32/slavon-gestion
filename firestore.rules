@@ -48,11 +48,12 @@ service cloud.firestore {
       allow read: if obrasMember();
       allow create: if obrasGestion();
       allow delete: if obrasAdmin();
-      // El encargado de obra sólo toca lo de la entrega y la instalación (queda registrado quién).
+      // El encargado de obra sólo toca lo de la entrega y la instalación (queda registrado quién),
+      // incluidas las cantidades de pegamento y cinta (materialesEntrega). Los planos los ve pero no los cambia.
       allow update: if obrasGestion()
         || (obrasMember()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'etapas', 'checklist', 'logistica', 'incidencias', 'instInicio', 'instFin', 'equipo', 'responsable', 'flete',
+            'etapas', 'checklist', 'logistica', 'incidencias', 'instInicio', 'instFin', 'equipo', 'responsable', 'flete', 'materialesEntrega',
             'estado', 'fin', 'postventa', 'editadoPor', 'editadoPorNombre', 'editadoEn'])
           // puede marcar la obra como entregada, pero no habilitar una venta
           && (!('estado' in request.resource.data.diff(resource.data).affectedKeys())
@@ -93,13 +94,14 @@ service cloud.firestore {
       allow read: if obrasGestion();
     }
 
-    // Catálogos: vendedores, revendedores (con su comisión), clientes, proveedores (con sus cuentas) y cuentas propias.
+    // Catálogos: vendedores, revendedores (con su comisión), clientes, proveedores (con sus cuentas), cuentas propias y césped.
     // Sólo admin y administrativo. No se borran: se dan de baja (activo = false) para no romper las ventas viejas.
     match /vendedores/{id} { allow read, create, update: if obrasGestion(); allow delete: if obrasAdmin(); }
     match /revendedores/{id} { allow read, create, update: if obrasGestion(); allow delete: if obrasAdmin(); }
     match /clientes/{id} { allow read, create, update: if obrasGestion(); allow delete: if obrasAdmin(); }
     match /proveedores/{id} { allow read, create, update: if obrasGestion(); allow delete: if obrasAdmin(); }
     match /cuentas/{id} { allow read, create, update: if obrasGestion(); allow delete: if obrasAdmin(); }
+    match /cespedes/{id} { allow read, create, update: if obrasGestion(); allow delete: if obrasAdmin(); }
 
     // Números correlativos (recibos).
     match /config/contadores {

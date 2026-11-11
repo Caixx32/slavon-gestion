@@ -1,0 +1,39 @@
+rules_version = '2';
+
+// Reglas de Firebase Storage (archivos del Sistema Slavon).
+// Pegar en la consola de Firebase → Storage → Reglas → Publicar.
+// Usan los mismos permisos que la base de datos: leen el usuario en Firestore (users/{mail}).
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true;
+    }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function isOwner() { return signedIn() && myEmail() == 'juanmarcospaterno@gmail.com'; }
+    function userPath() { return /databases/(default)/documents/users/$(myEmail()); }
+    function isActive() { return signedIn() && firestore.exists(userPath()) && firestore.get(userPath()).data.get('activo', false) == true; }
+    function role() { return isOwner() ? 'admin' : (isActive() ? firestore.get(userPath()).data.get('apps', {}).get('obras', '') : ''); }
+    function obrasGestion() { return role() in ['admin', 'administrativo']; }
+    function obrasMember() { return role() in ['admin', 'administrativo', 'encargado']; }
+
+    // Planos de cada obra: los ven todos los de Obras (los encargados los necesitan para instalar);
+    // los suben y borran admin y administración. Sólo fotos o PDF, de hasta 20 MB.
+    match /obras/{obraId}/planos/{archivo} {
+      allow read: if obrasMember();
+      allow create: if obrasGestion()
+        && request.resource.size < 20 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf');
+      allow delete: if obrasGestion();
+      allow update: if false;
+    }
+
+    // Lo demás, cerrado.
+    match /{todo=**} {
+      allow read, write: if false;
+    }
+  }
+}

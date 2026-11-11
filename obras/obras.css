@@ -189,3 +189,23 @@ body.wide main { max-width: 1320px; }
 .board-card .titulo-obra { font-weight: 700; }
 .pedido { flex: none; font-size: 12px; font-weight: 700; color: var(--muted); background: var(--card-2); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
 .sena-box { background: var(--card-2); box-shadow: none; }
+
+/* ---------- Fase 2: cancha, blanco, qué incluye, tributos ---------- */
+.aviso { background: var(--warn-soft, rgba(217, 119, 6, .12)); color: var(--warn); border-radius: 10px; padding: 9px 12px; margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+.aviso.rojo { background: var(--red-soft); color: var(--red); }
+.cancha-bloque { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 2px; margin-bottom: 14px; }
+.parametros { margin: 0 0 12px; }
+.parametros summary { cursor: pointer; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
+.list.incluye > .item { display: block; padding: 10px 12px; }
+.incluye-a { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.incluye-a > b { min-width: 92px; }
+.incluye-cant input { width: 96px; border: 1px solid var(--field-line); background: var(--field); border-radius: 8px; padding: 6px 8px; font-size: 15px; }
+.incluye-b { display: flex; align-items: center; gap: 12px; }
+.incluye-b .field { margin: 0; flex: 1; }
+.incluye-b .field > span { display: none; }
+.incluye-b .field select { padding: 7px 10px; font-size: 15px; }
+.check.envio { margin: 0; font-weight: 500; white-space: nowrap; }
+.incluye-ver + .incluye-ver { margin-top: 2px; }
+.tributo { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 6px; margin-bottom: 8px; }
+.tributo input { width: 100%; min-width: 0; border: 1px solid var(--field-line); background: var(--field); border-radius: 10px; padding: 9px 10px; font-size: 15px; }
+.badge.chico { flex: none; font-size: 11px; padding: 1px 6px; }
