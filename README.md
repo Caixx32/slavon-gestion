@@ -20,7 +20,7 @@ De la venta a la post-venta:
    - **Cliente:** nombre de la persona y/o club (con uno alcanza), varios teléfonos y mails, cada uno con de quién es (ej: «Juan, dueño», «Pepe, encargado»), ubicación.
    - **Cancha:** tipo y cantidad de canchas. Residencial (y mantenimiento u otro) se cargan en m²; las canchas, con ancho × largo + blanco y demarcación simple o doble, y los m² salen solos.
    - **Césped:** desplegable con los modelos de cada deporte (Multisport es un césped dentro de fútbol, hockey y residencial), monocolor o bicolor, colores.
-   - **Incluye el presupuesto:** instalación, arena y caucho; con eso se arman las etapas.
+   - **Incluye el presupuesto:** si incluye la instalación y, para la arena y el caucho, si los compra el cliente (y los instalamos nosotros), si los vendemos nosotros o si no lleva. Por defecto la arena la compra el cliente y el caucho lo vendemos. Con eso se arman las etapas.
    - **Plano adjunto** (foto o PDF de hasta 650 KB) y consideraciones.
    - **Plazo:** inmediato (~5 días), fabricación (20 a 30 días) u otro (se escribe cuál). Propone la fecha de entrega.
    - **Garantía en años.**

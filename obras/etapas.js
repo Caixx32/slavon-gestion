@@ -24,6 +24,10 @@ window.OBRAS_TIPOS = {
   otro: { nombre: 'Otro', arena: false, caucho: false, dias: null, medida: 'm2' },
 };
 
+// Arena y caucho: quién los compra, por defecto, cuando la obra los lleva.
+// 'cliente' = la compra el cliente y la instalamos nosotros · 'slavon' = la vendemos nosotros y la instalamos.
+window.OBRAS_PROVEE = { arena: 'cliente', caucho: 'slavon' };
+
 // Modelos de césped que se ofrecen en la venta según el deporte (siempre hay además «Otro» para escribirlo).
 // PENDIENTE: son los de la demo; reemplazar por la lista real de modelos de Slavon.
 window.OBRAS_CESPEDES = {

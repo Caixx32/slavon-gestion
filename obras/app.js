@@ -236,6 +236,20 @@
     if (medidaDe(o.tipo) !== 'cancha' || !num(o.ancho) || !num(o.largo)) return '';
     return [`${fmtNum(num(o.ancho))} × ${fmtNum(num(o.largo))} m`, o.demarcacion ? `demarcación ${o.demarcacion}` : '', num(o.blanco) ? `blanco ${m2Texto(o.blanco)}` : ''].filter(Boolean).join(' · ');
   }
+  // Arena y caucho: 'no' (no lleva) · 'cliente' (la compra el cliente) · 'slavon' (la vendemos nosotros).
+  // Si la obra tiene instalación, la instalamos nosotros en los dos casos.
+  function materialDe(o, m) {
+    if (['no', 'cliente', 'slavon'].includes(o[m])) return o[m];
+    const t = TIPOS[o.tipo] || TIPOS.otro;
+    const lleva = m === 'arena' ? (o.conArena ?? t.arena) : (o.conCaucho ?? t.caucho);
+    return lleva ? window.OBRAS_PROVEE[m] : 'no';
+  }
+  function materialTexto(m, valor, conInstalacion) {
+    const fem = m === 'arena';
+    if (valor === 'no') return 'No lleva';
+    if (valor === 'cliente') return `${fem ? 'La' : 'Lo'} compra el cliente${conInstalacion ? `, ${fem ? 'la' : 'lo'} instalamos nosotros` : ''}`;
+    return `${fem ? 'La' : 'Lo'} vendemos nosotros${conInstalacion ? ` y ${fem ? 'la' : 'lo'} instalamos` : ' (sin instalar)'}`;
+  }
   const plazoTexto = (o) => (o.plazo === 'otro' ? o.plazoOtro || 'Otro' : (window.OBRAS_PLAZOS[o.plazo] || {}).nombre || '');
 
   /* ----- Garantía (en años; las obras viejas la tenían en meses) ----- */
@@ -667,7 +681,6 @@
   }
 
   function datosCancha(o) {
-    const t = TIPOS[o.tipo] || TIPOS.otro;
     const medidas = medidasTexto(o);
     const pl = planos.filter((p) => p.obraId === o._id);
     return h('div.card.info',
@@ -675,7 +688,9 @@
       medidas ? infoRow('Medidas', medidas + (num(o.cantidad) > 1 ? ' (cada cancha)' : '')) : null,
       num(o.m2) ? infoRow('Superficie', m2Texto(o.m2) + (num(o.cantidad) > 1 ? ' en total' : '')) : null,
       o.cesped ? infoRow('Césped', o.cesped) : null,
-      infoRow('Incluye', [o.conInstalacion === false ? 'Sin instalación' : 'Instalación', (o.conArena ?? t.arena) ? 'arena' : 'sin arena', (o.conCaucho ?? t.caucho) ? 'caucho' : 'sin caucho'].join(' · ')),
+      infoRow('Instalación', o.conInstalacion === false ? 'No incluida (sólo se entrega el césped)' : 'Incluida en el presupuesto'),
+      infoRow('Arena', materialTexto('arena', materialDe(o, 'arena'), o.conInstalacion !== false)),
+      infoRow('Caucho', materialTexto('caucho', materialDe(o, 'caucho'), o.conInstalacion !== false)),
       pl.length ? infoRow(pl.length > 1 ? 'Planos' : 'Plano', h('div', pl.map((p) => h('div', h('a', { href: '#', onclick: (e) => { e.preventDefault(); verPlano(p); } }, icon(p.mime === 'application/pdf' ? 'file' : 'eye'), ' ', p.nombre || 'Plano'))))) : null,
       o.consideraciones ? infoRow('Consideraciones', h('div', { style: { whiteSpace: 'pre-wrap' } }, o.consideraciones)) : null,
       infoRow('Cliente', o.club || o.clienteNombre ? [o.club ? h('div', h('b', o.club)) : null, o.clienteNombre ? h('div', o.clienteNombre) : null] : o.cliente),
@@ -973,7 +988,7 @@
     if (c.anterior || c.pendiente <= 0) return UI.toast('No hay saldo pendiente.');
     const prox = c.fin ? proximaCuota(c) : null;
     const sugerido = prox ? Math.min(prox.pendiente, c.pendiente) : c.pendiente;
-    const tol = c.moneda === 'USD' ? 1 : 1000; // diferencia de redondeo que se da por saldada
+    const tol = 0.01; // sólo el redondeo de centavos del cambio: si falta algo, queda pendiente
     const lugares = [...new Set(Object.values(pagosPorObra).flat().map((p) => p.donde).filter(Boolean))].sort();
     const listId = 'donde-' + uid();
 
@@ -1032,7 +1047,7 @@
       if (monedaSel.value !== c.moneda) partes.push(h('div', monto && tc ? `Equivale a ${c.M(valor)}` : 'Falta el dólar para pasarlo a la moneda de la venta.'));
       if (monto && (valor || monedaSel.value === c.moneda)) {
         if (valor > c.pendiente + tol) partes.push(h('div', { style: { color: 'var(--red)', fontWeight: 600 } }, `Supera lo pendiente (${c.M(c.pendiente)}).`));
-        else if (queda <= tol) partes.push(h('div', { style: { color: 'var(--ok)', fontWeight: 600 } }, 'Con este pago queda todo cobrado.'));
+        else if (queda <= 0) partes.push(h('div', { style: { color: 'var(--ok)', fontWeight: 600 } }, 'Con este pago queda todo cobrado.'));
         else partes.push(h('div', `Pago parcial: después de este pago faltan ${c.M(queda)}.`));
       }
       equiv.replaceChildren(...partes);
@@ -1059,8 +1074,8 @@
           if (!val.medio) throw new Error('Elegí cómo pagó.');
           let valor = CALC.enMonedaVenta({ monto, moneda: val.moneda, tc }, c.moneda);
           if (valor > c.pendiente + tol) throw new Error(`El pago (${c.M(valor)}) supera lo pendiente (${c.M(c.pendiente)}). Revisá el monto o el precio de la venta.`);
-          // Diferencias chicas por el redondeo del cambio: el saldo queda saldado.
-          if (Math.abs(c.pendiente - valor) <= tol) valor = c.pendiente;
+          // Un centavo de más por el redondeo del cambio no se cobra de más.
+          if (valor > c.pendiente) valor = c.pendiente;
           const fecha = val.fecha || UI.today();
           cloud.put('pagos', cloud.newId(), {
             obraId: o._id, fecha, moneda: val.moneda, monto, tc: tc || 0, tcManual: !!tc && !tcDe(fecha), monedaVenta: c.moneda, valor,
@@ -1584,7 +1599,6 @@
     const o = obras.find((x) => x._id === id);
     if (!o) { setMain(backBtn(), h('div.card.empty', 'Cargando…')); return; }
     watchFotos(id);
-    const t = TIPOS[o.tipo] || TIPOS.otro;
     const finales = fotos.filter((f) => /cepillado|entregado|informe/i.test(((o.etapas || []).find((e) => e.id === f.etapaId) || {}).nombre || ''));
     const fotosActa = (finales.length ? finales : fotos).slice(0, 6);
     const fecha = o.fin || UI.today();
@@ -1610,7 +1624,9 @@
           row('Medidas', medidasTexto(o)),
           row('Superficie', m2Texto(o.m2)),
           row('Césped', o.cesped),
-          row('Incluye', [o.conInstalacion === false ? 'Provisión sin instalación' : 'Provisión e instalación', (o.conArena ?? t.arena) ? 'arena' : '', (o.conCaucho ?? t.caucho) ? 'caucho' : ''].filter(Boolean).join(' · ')),
+          row('Incluye', o.conInstalacion === false ? 'Provisión del césped, sin instalación' : 'Provisión e instalación del césped'),
+          materialDe(o, 'arena') !== 'no' ? row('Arena', materialTexto('arena', materialDe(o, 'arena'), o.conInstalacion !== false)) : null,
+          materialDe(o, 'caucho') !== 'no' ? row('Caucho', materialTexto('caucho', materialDe(o, 'caucho'), o.conInstalacion !== false)) : null,
           row('Instalación', fechasInst(o)),
           row('Fecha de entrega', UI.fmtDay(fecha)))),
         h('h3', 'Controles de entrega'),
@@ -1787,6 +1803,17 @@
     primeraF.querySelector('input').addEventListener('input', () => { primeraTocada = true; });
 
     const chk = (name, label, checked) => h('label.check', h('input', { type: 'checkbox', name, checked }), label);
+    const materialF = (m) => UI.field({ label: m === 'arena' ? 'Arena' : 'Caucho', name: m, type: 'select',
+      value: o ? materialDe(o, m) : t0[m] ? window.OBRAS_PROVEE[m] : 'no', options: [['cliente', ''], ['slavon', ''], ['no', '']] });
+    const arenaF = materialF('arena');
+    const cauchoF = materialF('caucho');
+    // El texto de cada opción dice si la instalamos o no, según esté incluida la instalación.
+    const textosMaterial = () => {
+      const inst = $('conInstalacion').checked;
+      for (const [m, f] of [['arena', arenaF], ['caucho', cauchoF]]) {
+        for (const op of f.querySelectorAll('option')) op.textContent = materialTexto(m, op.value, inst);
+      }
+    };
     const tiposOpts = Object.entries(TIPOS).filter(([k, t]) => !t.oculto || k === tipo0).map(([k, t]) => [k, t.nombre]);
 
     const body = h('div',
@@ -1811,11 +1838,10 @@
       fila(colorF, coloresF),
       bicolorNota,
       h('div.field-title', 'Incluye el presupuesto'),
-      h('div.row.wrap', { style: { gap: '0 20px' } },
-        chk('conInstalacion', 'Instalación', !o || o.conInstalacion !== false),
-        chk('conArena', 'Arena', o ? (o.conArena ?? t0.arena) : t0.arena),
-        chk('conCaucho', 'Caucho', o ? (o.conCaucho ?? t0.caucho) : t0.caucho)),
-      h('p.small.muted', { style: { marginTop: '-4px' } }, 'Lo que hace y cobra Slavon en esta obra. Con esto se arman las etapas.'),
+      chk('conInstalacion', 'Instalación', !o || o.conInstalacion !== false),
+      arenaF,
+      cauchoF,
+      h('p.small.muted', { style: { marginTop: '-8px' } }, 'Con esto se arman las etapas de la obra.'),
       planosEd.el,
       UI.field({ label: 'Consideraciones especiales', name: 'consideraciones', type: 'textarea', value: o ? o.consideraciones : '', placeholder: 'Ej: base de hormigón existente, acceso angosto' }),
       isNew ? null : h('p.small.muted', 'Cambiar el tipo o lo que incluye no cambia las etapas ya armadas: para eso usá «Editar etapas».'),
@@ -1877,6 +1903,7 @@
       }
       bicolorNota.hidden = val.color !== 'bicolor';
       plazoOtroF.parentNode.hidden = val.plazo !== 'otro';
+      textosMaterial();
 
       const fin = val.formaPago === 'financiado';
       const moneda = val.moneda === 'ARS' ? 'ARS' : 'USD';
@@ -1903,8 +1930,8 @@
     // Al cambiar el tipo: lo que incluye normalmente y la lista de céspedes de ese deporte.
     $('tipo').addEventListener('change', () => {
       const t = TIPOS[$('tipo').value] || TIPOS.otro;
-      $('conArena').checked = t.arena;
-      $('conCaucho').checked = t.caucho;
+      $('arena').value = t.arena ? window.OBRAS_PROVEE.arena : 'no';
+      $('caucho').value = t.caucho ? window.OBRAS_PROVEE.caucho : 'no';
       llenarCesped($('tipo').value, cespedSel.value);
       refresh();
     });
@@ -1951,7 +1978,7 @@
           nombre: val.nombre || [club || clienteNombre, tipoNombre(val.tipo)].filter(Boolean).join(' – '),
           tipo: val.tipo, cantidad, ancho, largo, demarcacion: porM2 ? '' : val.demarcacion, blanco, m2,
           ...cesped, cesped: cespedTexto(cesped),
-          conInstalacion: val.conInstalacion, conArena: val.conArena, conCaucho: val.conCaucho, consideraciones: val.consideraciones,
+          conInstalacion: val.conInstalacion, arena: val.arena, caucho: val.caucho, conArena: val.arena !== 'no', conCaucho: val.caucho !== 'no', consideraciones: val.consideraciones,
           clienteNombre, club, cliente: clienteTexto(club, clienteNombre), contactos: cts,
           telefono: (cts.find((c) => c.tipo === 'tel') || {}).valor || '', email: (cts.find((c) => c.tipo === 'mail') || {}).valor || '',
           ubicacion: val.ubicacion, interior: val.interior,
@@ -1966,7 +1993,7 @@
         };
         if (isNew) {
           const id = cloud.newId();
-          const opts = { conInstalacion: val.conInstalacion, conArena: val.conArena, conCaucho: val.conCaucho };
+          const opts = { conInstalacion: val.conInstalacion, conArena: val.arena !== 'no', conCaucho: val.caucho !== 'no' };
           cloud.write([
             {
               op: 'set', col: 'obras', id, data: {
