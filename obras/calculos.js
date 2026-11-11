@@ -114,7 +114,73 @@
     return round2(monedaVenta === 'USD' ? m / cambio : m * cambio);
   }
 
-  const api = { num, round2, fmtNum, money, formatTyping, addMonths, blanco, bicolor, m2Cancha, planCuotas, estadoCuotas, enMonedaVenta };
+  // Equivalente de un importe en la otra moneda: dólares → pesos o pesos → dólares.
+  function equivalente(monto, moneda, tc) {
+    const cambio = num(tc);
+    if (!cambio) return 0;
+    return round2(moneda === 'USD' ? num(monto) * cambio : num(monto) / cambio);
+  }
+
+  /*
+   * Cuánto descuenta un pago del saldo, en la moneda de la venta.
+   * Cheques: pendiente → con el dólar del día en que se recibió · cobrado → con el dólar del día del cobro
+   * · rechazado → no cuenta (el saldo vuelve).
+   */
+  function valorPago(p, monedaVenta) {
+    if (p.forma === 'cheque' && Array.isArray(p.cheques) && p.cheques.length) {
+      return round2(p.cheques.reduce((a, ch) => {
+        if (ch.estado === 'rechazado') return a;
+        const tc = ch.estado === 'cobrado' && num(ch.cobradoTC) ? ch.cobradoTC : p.tc;
+        return a + enMonedaVenta({ monto: ch.monto, moneda: p.moneda, tc }, monedaVenta);
+      }, 0));
+    }
+    return enMonedaVenta({ monto: p.monto, moneda: p.moneda, tc: p.tc }, monedaVenta);
+  }
+
+  // Parte de un pago que todavía está en cheques sin cobrar.
+  function aCobrarPago(p, monedaVenta) {
+    if (p.forma !== 'cheque' || !Array.isArray(p.cheques)) return 0;
+    return round2(p.cheques.filter((ch) => !ch.estado || ch.estado === 'pendiente')
+      .reduce((a, ch) => a + enMonedaVenta({ monto: ch.monto, moneda: p.moneda, tc: p.tc }, monedaVenta), 0));
+  }
+
+  /* ---------- Importe en letras (para el recibo) ---------- */
+
+  const UNI = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce', 'trece', 'catorce', 'quince',
+    'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve', 'veinte', 'veintiuno', 'veintidós', 'veintitrés', 'veinticuatro', 'veinticinco',
+    'veintiséis', 'veintisiete', 'veintiocho', 'veintinueve'];
+  const DEC = ['', '', '', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
+  const CEN = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
+  const apocope = (t) => t.replace(/veintiuno$/, 'veintiún').replace(/uno$/, 'un');
+  function cientos(n) {
+    if (n === 100) return 'cien';
+    const r = n % 100;
+    const dec = r < 30 ? UNI[r] : DEC[Math.floor(r / 10)] + (r % 10 ? ' y ' + UNI[r % 10] : '');
+    return [CEN[Math.floor(n / 100)], dec].filter(Boolean).join(' ');
+  }
+  function enteroALetras(n) {
+    if (!n) return 'cero';
+    const millones = Math.floor(n / 1e6);
+    const miles = Math.floor((n % 1e6) / 1000);
+    const resto = n % 1000;
+    return [
+      millones ? (millones === 1 ? 'un millón' : apocope(enteroALetras(millones)) + ' millones') : '',
+      miles ? (miles === 1 ? 'mil' : apocope(cientos(miles)) + ' mil') : '',
+      resto ? cientos(resto) : '',
+    ].filter(Boolean).join(' ');
+  }
+  // 1234.56, 'USD' → «dólares mil doscientos treinta y cuatro con 56/100».
+  function enLetras(n, moneda = 'USD') {
+    const x = Math.abs(round2(n));
+    const ent = Math.floor(x);
+    const cent = Math.round((x - ent) * 100);
+    return `${moneda === 'ARS' ? 'pesos' : 'dólares'} ${enteroALetras(ent)}${cent ? ` con ${String(cent).padStart(2, '0')}/100` : ''}`;
+  }
+
+  const api = {
+    num, round2, fmtNum, money, formatTyping, addMonths, blanco, bicolor, m2Cancha, planCuotas, estadoCuotas, enMonedaVenta,
+    equivalente, valorPago, aCobrarPago, enLetras,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.OBRAS_CALC = api;
 })(typeof window !== 'undefined' ? window : globalThis);

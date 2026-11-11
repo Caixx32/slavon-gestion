@@ -1,107 +1,107 @@
 # Checklist de cambios: App Obras Slavon
 
-Actualizado: 11/11/2026
+Actualizado: 11/11/2026 · Fase 1 hecha (secciones 0, 1 «Vendedor» y «Datos del cliente», y 2).
 Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado con ❓ necesita datos de Juan antes de programarlo.
 
 ---
 
 ## 0. Base común (va primero porque lo usan todas las áreas)
 
-- [ ] **Catálogo de vendedores**: lista editable (alta/baja). Se usa en el desplegable "Quién vendió".
-- [ ] **Catálogo de revendedores**: lista editable, con % de comisión por defecto (se puede cambiar en cada venta).
-- [ ] **Catálogo de clientes**: alta de clientes para elegirlos de un desplegable y no tipear (evita duplicados y permite reportes).
-- [ ] **Catálogo de proveedores**: alta de proveedores con sus cuentas bancarias (CBU/alias, banco, titular). Se usan en "Transferencia a proveedor".
-- [ ] **Catálogo de cuentas propias**: W. MAX SRL, Atlantis, efectivo oficina, etc. Se usan en "Cuenta nuestra".
+- [x] **Catálogo de vendedores**: lista editable (alta/baja). Se usa en el desplegable "Quién vendió".
+- [x] **Catálogo de revendedores**: lista editable, con % de comisión por defecto (se puede cambiar en cada venta).
+- [x] **Catálogo de clientes**: alta de clientes para elegirlos de un desplegable y no tipear (evita duplicados y permite reportes).
+- [x] **Catálogo de proveedores**: alta de proveedores con sus cuentas bancarias (CBU/alias, banco, titular). Se usan en "Transferencia a proveedor".
+- [x] **Catálogo de cuentas propias**: W. MAX SRL, Atlantis, efectivo oficina, etc. Se usan en "Cuenta nuestra".
 - [ ] **Catálogo de césped** ❓: modelo, deporte(s) donde aplica, kg de arena por m², kg de caucho por m², si admite bicolor. Juan pasa la lista.
-- [ ] **Formato de números en toda la app**: separador de miles con punto (10.000) y símbolo según moneda: **US$** dólares, **$** pesos.
-- [ ] **Buscador** en Ventas y en Administración: por nombre de cliente, club, teléfono, mail y **n° de pedido**.
+- [x] **Formato de números en toda la app**: separador de miles con punto (10.000) y símbolo según moneda: **US$** dólares, **$** pesos.
+- [x] **Buscador** en Ventas y en Administración: por nombre de cliente, club, teléfono, mail y **n° de pedido**.
 
 ---
 
 ## 1. NUEVA VENTA
 
 ### Vendedor
-- [ ] "Quién vendió" pasa a ser **desplegable** (del catálogo), no texto libre.
-- [ ] Permitir **más de un vendedor** por venta.
-- [ ] Opción **revendedor**: si aplica, elegirlo del catálogo y cargar/ver la **comisión** (% y monto calculado sobre el presupuesto).
+- [x] "Quién vendió" pasa a ser **desplegable** (del catálogo), no texto libre.
+- [x] Permitir **más de un vendedor** por venta.
+- [x] Opción **revendedor**: si aplica, elegirlo del catálogo y cargar/ver la **comisión** (% y monto calculado sobre el presupuesto).
 
 ### Datos del cliente
-- [ ] Dos identificadores, usables por separado o juntos: **Nombre del cliente** y **Club**. Al menos uno es obligatorio.
-- [ ] Campo **mail**.
-- [ ] Botón **"+ teléfono"** y **"+ mail"**, cada uno con etiqueta (ej. "Juan, dueño", "Pepe, encargado").
-- [ ] Elegir cliente existente desde el catálogo o crear uno nuevo desde la misma pantalla.
+- [x] Dos identificadores, usables por separado o juntos: **Nombre del cliente** y **Club**. Al menos uno es obligatorio.
+- [x] Campo **mail**.
+- [x] Botón **"+ teléfono"** y **"+ mail"**, cada uno con etiqueta (ej. "Juan, dueño", "Pepe, encargado").
+- [x] Elegir cliente existente desde el catálogo o crear uno nuevo desde la misma pantalla.
 
 ### Pedido
-- [ ] Campo **n° de pedido** (opcional).
+- [x] Campo **n° de pedido** (opcional). _Hecho para el buscador; «Con stock» queda para después._
 - [ ] Tilde **"Con stock"** (sale de stock, no se fabrica).
 
 ### Tipo de cancha y césped
-- [ ] Sacar **Multisport** como tipo de cancha. Pasa a ser una **opción de césped** dentro de fútbol, hockey o residencial.
-- [ ] **Tipo de césped**: desplegable con los modelos del deporte elegido (del catálogo).
-- [ ] **Monocolor / bicolor**. Si es bicolor, aplicar fórmula de desperdicio ❓ (Juan pasa la fórmula).
+- [x] Sacar **Multisport** como tipo de cancha. Pasa a ser una **opción de césped** dentro de fútbol, hockey o residencial.
+- [ ] **Tipo de césped**: desplegable con los modelos del deporte elegido (del catálogo). _Hecho con los modelos de la demo; falta el catálogo real ❓._
+- [ ] **Monocolor / bicolor**. Si es bicolor, aplicar fórmula de desperdicio ❓ (Juan pasa la fórmula). _El selector está; falta la fórmula._
 
 ### Medidas y m²
 - [ ] **Residencial**: no es cancha. Solo se cargan **m² a mano**, y el **plano es obligatorio** (la app pide adjuntarlo y no deja guardar sin él).
-- [ ] **Fútbol** (y demás canchas): se cargan **ancho y largo**. m² = ancho × largo + blanco.
-- [ ] **Demarcación simple o doble**: selector que cambia el cálculo del blanco ❓.
+- [x] **Fútbol** (y demás canchas): se cargan **ancho y largo**. m² = ancho × largo + blanco.
+- [ ] **Demarcación simple o doble**: selector que cambia el cálculo del blanco ❓. _El selector está; el blanco se carga a mano hasta tener la fórmula._
 - [ ] **Calculadora de blanco por tipo de cancha** ❓: muestra cuántos metros/m² de blanco lleva según el tipo de cancha y la demarcación, para verificar. Juan explica cómo se calcula.
 
 ### Materiales (automáticos según el césped)
 - [ ] **Arena**: kg necesarios = m² × kg/m² del modelo elegido. Se calcula solo y se puede corregir a mano.
 - [ ] **Caucho**: kg necesarios = m² × kg/m² del modelo. Se calcula solo y se puede corregir a mano. Si el modelo no tiene dato, la app lo marca como faltante.
-- [ ] **Qué incluye** ❓: definir si cada tilde (instalación, arena, caucho) significa "está incluido en el presupuesto" o "este césped en esta cancha lleva arena, caucho e instalación". Recomendación: separar las dos cosas: lo que **lleva** la cancha (lo calcula la app) y lo que **incluye el precio** (se tilda).
+- [ ] **Qué incluye** ❓: definir si cada tilde (instalación, arena, caucho) significa "está incluido en el presupuesto" o "este césped en esta cancha lleva arena, caucho e instalación". Recomendación: separar las dos cosas: lo que **lleva** la cancha (lo calcula la app) y lo que **incluye el precio** (se tilda). _Hecho lo que incluye el precio: instalación sí/no; arena y caucho: los compra el cliente (los instalamos), los vendemos o no lleva. Falta lo que «lleva» calculado desde el catálogo de césped._
 - [ ] **Envío**: ¿incluido? Sí/No. Si es Sí, tildar de qué: **césped**, **pegamento**, **caucho**, **arena**, **todo**.
 
 ### Plano
-- [ ] **Adjuntar plano** (PDF o imagen), uno o varios. Obligatorio en residencial.
+- [ ] **Adjuntar plano** (PDF o imagen), uno o varios. Obligatorio en residencial. _Adjuntar ya funciona; falta que sea obligatorio en residencial._
 
 ### Plazo
-- [ ] Mantener **inmediata (~5 días)** y **fabricación (20-30 días)**, y agregar **"Otro"** con campo para especificar.
+- [x] Mantener **inmediata (~5 días)** y **fabricación (20-30 días)**, y agregar **"Otro"** con campo para especificar.
 
 ### Precio y forma de pago
-- [ ] **Antes del precio**: elegir **contado** o **financiado**.
-- [ ] Moneda del presupuesto: **US$** o **$**.
+- [x] **Antes del precio**: elegir **contado** o **financiado**.
+- [x] Moneda del presupuesto: **US$** o **$**.
 - [ ] **Facturación**: elegir **IVA mínimo**, **IVA total** o **sin factura**. Mostrar cuánto del presupuesto corresponde a cada parte.
-- [ ] **Financiado**: cargar anticipo → la app calcula las cuotas. Por defecto **11 cuotas, 1% mensual sobre el saldo** (editable):
+- [x] **Financiado**: cargar anticipo → la app calcula las cuotas. Por defecto **11 cuotas, 1% mensual sobre el saldo** (editable):
   `cuota = (presupuesto − anticipo) × (1 + 0,01 × 11) / 11`
   Ejemplo: 10.000 − 2.000 = 8.000 → 8.000 × 1,11 / 11 = **807,27 por cuota**.
-- [ ] Cargar **fecha de la 1ª cuota** y generar las siguientes mensuales (tabla con fecha y monto de cada cuota).
-- [ ] **Garantía en años**, no en meses.
+- [x] Cargar **fecha de la 1ª cuota** y generar las siguientes mensuales (tabla con fecha y monto de cada cuota).
+- [x] **Garantía en años**, no en meses.
 
 ---
 
 ## 2. REGISTRAR PAGO (se usa desde Ventas y Administración)
 
 ### 🐞 Errores actuales a corregir
-- [ ] El botón **"Saldo cobrado"** marca el saldo como pagado completo aunque se cargue un monto menor.
-- [ ] Caso probado: presupuesto 10.000, anticipo 5.000, pago cargado menor a 5.000 → lo toma como saldo, queda **"saldado"** y **no se puede modificar**.
-- [ ] Ningún pago debe cerrar el saldo solo. El estado sale de la cuenta: **saldo = presupuesto − suma de pagos**.
+- [x] El botón **"Saldo cobrado"** marca el saldo como pagado completo aunque se cargue un monto menor.
+- [x] Caso probado: presupuesto 10.000, anticipo 5.000, pago cargado menor a 5.000 → lo toma como saldo, queda **"saldado"** y **no se puede modificar**.
+- [x] Ningún pago debe cerrar el saldo solo. El estado sale de la cuenta: **saldo = presupuesto − suma de pagos**.
 
 ### Botón "Registrar pago" (parcial o total)
 Cada pago guarda:
-- [ ] **Fecha**.
-- [ ] **Monto** y **moneda** (US$ o $).
-- [ ] **Tipo de cambio**: el BNA del día del pago (billete venta, desde `shared/bna.json`), editable.
-- [ ] **Equivalente** en la otra moneda (calculado).
-- [ ] **Forma de pago** (desplegable):
+- [x] **Fecha**.
+- [x] **Monto** y **moneda** (US$ o $).
+- [x] **Tipo de cambio**: el BNA del día del pago (billete venta, desde `shared/bna.json`), editable.
+- [x] **Equivalente** en la otra moneda (calculado).
+- [x] **Forma de pago** (desplegable):
   - **Transferencia a proveedor** → desplegable de proveedores y sus cuentas.
   - **Cuenta nuestra** → desplegable de cuentas propias (W. MAX SRL, Atlantis, etc.).
   - **Efectivo pesos**.
   - **Efectivo dólares**.
   - **Cheque** → ver abajo.
-- [ ] **Dónde pagó** (desplegable: ej. "transferencia a Polimetal", "depósito en Atlantis", "efectivo oficina").
-- [ ] **Comprobante**: adjuntar uno o varios archivos.
-- [ ] Tilde **"Registrado en nuestros registros"** (ya se cargó el comprobante en la contabilidad).
-- [ ] Si fue a **W. MAX SRL o Atlantis**: estado de factura → **"ya tiene factura"** / **"hay que solicitarla"**.
-- [ ] **Editar y borrar** un pago mal cargado (borrar solo Admin o Administrativo).
+- [x] **Dónde pagó** (desplegable: ej. "transferencia a Polimetal", "depósito en Atlantis", "efectivo oficina"). _Sale de la forma de pago: proveedor y su cuenta, cuenta nuestra o caja._
+- [x] **Comprobante**: adjuntar uno o varios archivos.
+- [x] Tilde **"Registrado en nuestros registros"** (ya se cargó el comprobante en la contabilidad).
+- [x] Si fue a **W. MAX SRL o Atlantis**: estado de factura → **"ya tiene factura"** / **"hay que solicitarla"**.
+- [x] **Editar y borrar** un pago mal cargado (borrar solo Admin o Administrativo).
 
 ### Cheques
-- [ ] Cargar **uno o varios cheques** en un mismo pago. Por cada cheque: **n° de cheque**, **a nombre de**, **banco**, **fecha de cobro**, **monto**.
-- [ ] Estado del cheque: **pendiente / cobrado / rechazado**.
-- [ ] Al marcarlo **cobrado**: cargar la **fecha real** y la **cotización del día de cobro**. El equivalente en US$ se recalcula con esa cotización.
+- [x] Cargar **uno o varios cheques** en un mismo pago. Por cada cheque: **n° de cheque**, **a nombre de**, **banco**, **fecha de cobro**, **monto**.
+- [x] Estado del cheque: **pendiente / cobrado / rechazado**.
+- [x] Al marcarlo **cobrado**: cargar la **fecha real** y la **cotización del día de cobro**. El equivalente en US$ se recalcula con esa cotización.
 
 ### Recibo
-- [ ] Botón **"Recibo PDF"** en cada pago (imprimir o descargar).
+- [x] Botón **"Recibo PDF"** en cada pago (imprimir o descargar).
 
 ---
 
