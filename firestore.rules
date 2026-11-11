@@ -49,11 +49,12 @@ service cloud.firestore {
       allow create: if obrasGestion();
       allow delete: if obrasAdmin();
       // El encargado de obra sólo toca lo de la entrega y la instalación (queda registrado quién),
-      // incluidas las cantidades de pegamento y cinta (materialesEntrega). Los planos los ve pero no los cambia.
+      // incluidas las cantidades de pegamento y cinta (materialesEntrega) y el envío de cada ítem (envios).
+      // Los planos los ve pero no los cambia.
       allow update: if obrasGestion()
         || (obrasMember()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'etapas', 'checklist', 'logistica', 'incidencias', 'instInicio', 'instFin', 'equipo', 'responsable', 'flete', 'materialesEntrega',
+            'etapas', 'checklist', 'logistica', 'incidencias', 'instInicio', 'instFin', 'equipo', 'responsable', 'flete', 'materialesEntrega', 'envios',
             'estado', 'fin', 'postventa', 'editadoPor', 'editadoPorNombre', 'editadoEn'])
           // puede marcar la obra como entregada, pero no habilitar una venta
           && (!('estado' in request.resource.data.diff(resource.data).affectedKeys())
