@@ -226,6 +226,12 @@
 
   // Cómo se muestra el cliente: «Club Ferro (Sr. Ruiz)», o sólo el club, o sólo el nombre.
   const clienteTexto = (club, nombre) => (club && nombre ? `${club} (${nombre})` : club || nombre || '');
+  // N° de pedido siempre al lado del cliente o club (listas, fichas, buscador, PDF y recibos).
+  const pedidoTexto = (o) => (o && o.pedido ? `Pedido N° ${o.pedido}` : '');
+  const clientePed = (o) => [o.cliente, pedidoTexto(o)].filter(Boolean).join(' · ');
+  const pedidoChip = (o) => (o && o.pedido ? h('span.pedido', 'N° ' + o.pedido) : null);
+  // Título de una obra en las listas: nombre (con el cliente o club) y el n° de pedido al lado.
+  const tituloObra = (o, extra) => h('div.titulo-obra', h('span.ellipsis', extra ? `${extra}${o.nombre}` : o.nombre), pedidoChip(o));
   // Obras viejas: el cliente estaba en un solo campo.
   const clienteNombreDe = (o) => (o.clienteNombre != null || o.club != null ? o.clienteNombre || '' : o.cliente || '');
   // Teléfonos y mails con de quién es cada uno. Las obras viejas tenían un solo teléfono.
@@ -324,7 +330,10 @@
     return {
       v, moneda, precio, sena, fin, plan, total, pagos, filas, cobrado, pendiente,
       aCobrar: CALC.round2(filas.reduce((a, f) => a + f.aCobrar, 0)),
-      senaSinRegistrar: sena > 0 && !pagos.some((p) => p.tipo === 'sena'),
+      // Seña o anticipo: lo PACTADO es el de la venta; lo que cuenta es lo PAGADO con pagos de tipo seña.
+      senaCobrada: CALC.round2(filas.filter((f) => f.p.tipo === 'sena').reduce((a, f) => a + f.valor, 0)),
+      get senaFalta() { return Math.max(0, CALC.round2(this.sena - this.senaCobrada)); },
+      get senaSinRegistrar() { return this.senaFalta > 0.005; },
       pct: total ? Math.min(100, Math.round((cobrado / total) * 100)) : 0,
       // Lo cobrado cubre primero el anticipo y después las cuotas, en orden.
       cuotas: plan ? CALC.estadoCuotas(plan.cuotas, Math.max(0, cobrado - sena)) : [],
@@ -433,8 +442,8 @@
 
   function obraRow(o, right, sub) {
     return h('div.item', { onclick: () => go('obra/' + o._id) },
-      h('div.grow',
-        h('div.ellipsis', { style: { fontWeight: 600 } }, o.nombre),
+      h('div.grow', { style: { minWidth: 0 } },
+        tituloObra(o),
         h('div.small.muted.ellipsis', sub || [tipoNombre(o.tipo), o.cliente, o.ubicacion].filter(Boolean).join(' · '))),
       right || null, icon('chev'));
   }
@@ -522,7 +531,7 @@
     if (k === 'entregas') linea = [progressBar(progreso(o)), h('div.small.muted', { style: { marginTop: '4px' } }, o.instInicio ? fechasInst(o) : 'Sin fecha de instalación')];
     if (k === 'postventa') { const p = (o.postventa || []).find((x) => !x.hecho); linea = p ? h('span.small', `Llamado ${p.label}: `, urgencia(p.fecha)) : null; }
     return h('div.board-card', { onclick: () => go('obra/' + o._id) },
-      h('div.ellipsis', { style: { fontWeight: 700 } }, o.nombre),
+      tituloObra(o),
       h('div.small.muted.ellipsis', { style: { marginBottom: '6px' } }, tipoNombre(o.tipo)),
       linea);
   }
@@ -562,8 +571,8 @@
       const enPesos = c.moneda === 'USD' && tcHoy() && c.pendiente ? ' = ' + ars(c.pendiente * tcHoy()) : '';
       return h('div.item', { onclick: () => go('obra/' + o._id) },
         h('span.dot', { class: UI.daysUntil(o.fechaEntrega || '9999-12-31') <= AVISO_DIAS ? 'late' : '' }, c.fin ? '✎' : '$'),
-        h('div.grow',
-          h('div.ellipsis', { style: { fontWeight: 600 } }, o.nombre),
+        h('div.grow', { style: { minWidth: 0 } },
+          tituloObra(o),
           h('div.small.muted.ellipsis', c.fin ? 'Financiado · falta el contrato firmado'
             : `Contado · saldo ${c.M(c.pendiente)}${enPesos}${c.cobrado ? ` · pagado ${c.M(c.cobrado)} de ${c.M(c.total)}` : ''}`)),
         urgencia(o.fechaEntrega),
@@ -579,7 +588,7 @@
         kpi(enAdmin.filter((o) => esFinanciado(ventas[o._id]) && !condicionOk(o)).length, 'Contratos por firmar')),
       section('Listas para pasar a Entregas', listas.map((o) => h('div.item', { onclick: () => go('obra/' + o._id) },
         h('span.dot.done', icon('check')),
-        h('div.grow', h('div.ellipsis', { style: { fontWeight: 600 } }, o.nombre), h('div.small.muted', [esFinanciado(ventas[o._id]) ? 'Contrato firmado' : 'Saldo cobrado', 'entrega ' + UI.fmtDay(o.fechaEntrega)].join(' · '))),
+        h('div.grow', { style: { minWidth: 0 } }, tituloObra(o), h('div.small.muted', [esFinanciado(ventas[o._id]) ? 'Contrato firmado' : 'Saldo cobrado', 'entrega ' + UI.fmtDay(o.fechaEntrega)].join(' · '))),
         h('button.btn.small.primary', { type: 'button', onclick: (e) => { e.stopPropagation(); habilitar(o); } }, 'Pasar a Entregas'))), 'Nada listo para pasar.'),
       section('Urgentes', urgentes.map(pendRow), 'No hay entregas próximas con saldo o contrato pendiente.'),
       section('Pendientes, con entrega más adelante', resto.map(pendRow), 'No hay otras ventas pendientes.'));
@@ -622,7 +631,7 @@
     return h('div.card.tap.obra-card', { onclick: () => go('obra/' + o._id) },
       h('div.row',
         h('div.grow',
-          h('h3.ellipsis', o.nombre),
+          h('h3.titulo-obra', h('span.ellipsis', o.nombre), pedidoChip(o)),
           h('div.small.muted.ellipsis', [tipoNombre(o.tipo), o.ubicacion, o.equipo, o.responsable ? userName(o.responsable) : ''].filter(Boolean).join(' · '))),
         h('b.pct', pct + '%')),
       h('div', { style: { margin: '10px 0 6px' } }, progressBar(pct)),
@@ -637,8 +646,8 @@
     const sup = superpuestas(o, o.equipo, o.instInicio, o.instFin);
     return h('div.item', { onclick: () => go('obra/' + o._id) },
       h('span.dot.doing', icon('calendar')),
-      h('div.grow',
-        h('div.ellipsis', { style: { fontWeight: 600 } }, o.nombre),
+      h('div.grow', { style: { minWidth: 0 } },
+        tituloObra(o),
         h('div.small.muted.ellipsis', [tipoNombre(o.tipo), o.ubicacion, o.equipo, o.responsable ? userName(o.responsable) : ''].filter(Boolean).join(' · '))),
       sup.length ? h('span.badge.warn', { title: 'Mismo equipo en: ' + sup.map((x) => x.nombre).join(', ') }, 'Equipo doble') : null,
       h('span.badge.blue', fechasInst(o)));
@@ -648,7 +657,7 @@
     return h('div.item', { onclick: () => go('obra/' + o._id + '/entrega') },
       h('span.dot.late', '!'),
       h('div.grow',
-        h('div.ellipsis', { style: { fontWeight: 600 } }, `${i.tipo} · ${o.nombre}`),
+        tituloObra(o, `${i.tipo} · `),
         h('div.small.muted.ellipsis', [UI.fmtDay(i.fecha), i.porNombre, i.detalle, i.avisadoCliente ? 'cliente avisado' : 'cliente sin avisar'].filter(Boolean).join(' · '))),
       icon('chev'));
   }
@@ -658,8 +667,8 @@
     const d = UI.daysUntil(vence);
     return h('div.item', { onclick: () => go('obra/' + o._id + '/postventa') },
       h('span.dot', icon('clip')),
-      h('div.grow',
-        h('div.ellipsis', { style: { fontWeight: 600 } }, o.nombre),
+      h('div.grow', { style: { minWidth: 0 } },
+        tituloObra(o),
         h('div.small.muted.ellipsis', `Garantía de ${garantiaTexto(o)} · vence ${UI.fmtDay(vence)}`)),
       h('span.badge', { class: d < 0 ? 'red' : d <= 60 ? 'warn' : '' }, d < 0 ? 'Vencida' : UI.relDays(vence)));
   }
@@ -690,7 +699,7 @@
       h('div.row', { style: { alignItems: 'flex-start' } },
         h('div.grow',
           h('h1', { style: { marginBottom: '2px' } }, o.nombre),
-          h('div.muted', [tipoNombre(o.tipo) + (num(o.cantidad) > 1 ? ` × ${o.cantidad}` : ''), o.cliente].filter(Boolean).join(' · '))),
+          h('div.muted', [tipoNombre(o.tipo) + (num(o.cantidad) > 1 ? ` × ${o.cantidad}` : ''), clientePed(o)].filter(Boolean).join(' · '))),
         h('div.row', { style: { gap: '6px' } },
           tel ? h('a.btn.small', { href: telHref(tel), 'aria-label': 'Llamar' }, icon('phone')) : null,
           wa ? h('a.btn.small', { href: wa, target: '_blank', rel: 'noopener' }, icon('whatsapp')) : null)),
@@ -711,7 +720,7 @@
       infoRow('Caucho', materialTexto('caucho', materialDe(o, 'caucho'), o.conInstalacion !== false)),
       pl.length ? infoRow(pl.length > 1 ? 'Planos' : 'Plano', h('div', pl.map((p) => h('div', h('a', { href: '#', onclick: (e) => { e.preventDefault(); verArchivo(p); } }, icon(p.mime === 'application/pdf' ? 'file' : 'eye'), ' ', p.nombre || 'Plano'))))) : null,
       o.consideraciones ? infoRow('Consideraciones', h('div', { style: { whiteSpace: 'pre-wrap' } }, o.consideraciones)) : null,
-      infoRow('Cliente', o.club || o.clienteNombre ? [o.club ? h('div', h('b', o.club)) : null, o.clienteNombre ? h('div', o.clienteNombre) : null] : o.cliente),
+      infoRow('Cliente', [o.club ? h('div', h('b', o.club)) : null, o.clienteNombre ? h('div', o.clienteNombre) : null, !o.club && !o.clienteNombre ? h('div', o.cliente) : null, o.pedido ? h('div.small', h('span.pedido', { style: { marginLeft: 0 } }, pedidoTexto(o))) : null]),
       contactosDe(o).length ? infoRow('Contactos', contactosVer(o)) : null,
       o.ubicacion ? infoRow('Ubicación', h('a', { href: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(o.ubicacion), target: '_blank', rel: 'noopener' }, o.ubicacion, o.interior ? ' (interior)' : '')) : null,
       o.notas ? infoRow('Notas', h('div', { style: { whiteSpace: 'pre-wrap' } }, o.notas)) : null);
@@ -781,11 +790,13 @@
     return [
       h('div.row', { style: { marginTop: '22px' } },
         h('h2.grow', { style: { margin: 0 } }, 'Cobros'),
-        c.total && c.pendiente > 0 ? h('button.btn.small.primary', { type: 'button', onclick: () => pagoForm(o, null, c.senaSinRegistrar ? { tipo: 'sena', monto: Math.min(c.sena, c.pendiente) } : {}) }, icon('money'), 'Registrar pago') : null),
+        c.total && c.pendiente > 0 ? h('button.btn.small.primary', { type: 'button', onclick: () => registrarPago(o) }, icon('money'), 'Registrar pago') : null),
       h('div.card.info', { style: { marginTop: '10px' } },
         infoRow('Forma de pago', c.fin ? 'Financiado' : 'Contado'),
         infoRow('Presupuesto', c.precio ? [h('b', c.M(c.precio)), enPesos(c.precio)] : '—'),
-        infoRow(senaTxt, c.sena ? [c.M(c.sena), v.senaFecha ? h('span.muted', ' · ' + UI.fmtDay(v.senaFecha)) : null] : '—'),
+        infoRow(`${senaTxt} pactad${c.fin ? 'o' : 'a'}`, c.sena ? [c.M(c.sena), v.senaFecha ? h('span.muted', ' · ' + UI.fmtDay(v.senaFecha)) : null] : '—'),
+        c.sena ? infoRow(`Cobrado de ${senaTxt.toLowerCase()}`, c.senaCobrada ? c.M(c.senaCobrada) : 'Nada todavía') : null,
+        c.sena ? infoRow(`Falta de ${senaTxt.toLowerCase()}`, c.senaFalta > 0.005 ? h('b', { style: { color: 'var(--red)' } }, c.M(c.senaFalta)) : h('span.badge.ok', c.fin ? 'Anticipo completo' : 'Seña completa')) : null,
         c.fin ? infoRow('Financiación', [
           h('div', `Saldo ${c.M(c.plan.saldo)} + ${fmtNum(c.plan.tasaTotal)} % (${fmtNum(c.plan.tasaMensual)} % mensual) = ${c.M(c.plan.total)}`),
           h('div', h('b', `${c.plan.cantidad} cuotas de ${c.M(c.plan.cuota)}`), v.primeraCuota ? h('span.muted', ` · la primera el ${UI.fmtDay(v.primeraCuota)}`) : null)]) : null,
@@ -793,8 +804,8 @@
         c.total ? infoRow('Pagado', [h('div', `${c.M(c.cobrado)} (${c.pct} %)`), c.aCobrar ? h('div.small.muted', `de eso, ${c.M(c.aCobrar)} en cheques a cobrar`) : null, h('div', { style: { marginTop: '6px' } }, progressBar(c.pct))]) : null,
         c.total ? infoRow('Saldo', c.pendiente > 0 ? [h('b', { style: { color: 'var(--red)' } }, c.M(c.pendiente)), enPesos(c.pendiente)] : h('span.badge.ok', 'Saldo 0: todo cobrado')) : null,
         prox ? infoRow('Próxima cuota', `N° ${prox.n} · ${prox.fecha ? UI.fmtDay(prox.fecha) + ' · ' : ''}${c.M(prox.pendiente)}${prox.pagado ? ' (resto)' : ''}`) : null),
-      c.senaSinRegistrar && c.pendiente > 0 ? h('div', { style: { marginTop: '12px' } }, pasoBox(`${senaTxt} de ${c.M(c.sena)}: falta registrarla como pago (cómo y dónde se pagó).`,
-        h('button.btn.small.primary', { type: 'button', onclick: () => pagoForm(o, null, { tipo: 'sena', monto: Math.min(c.sena, c.pendiente) }) }, `Registrar ${senaTxt.toLowerCase()}`))) : null,
+      c.senaSinRegistrar && c.pendiente > 0 ? h('div', { style: { marginTop: '12px' } }, pasoBox(`${senaTxt} pactad${c.fin ? 'o' : 'a'} ${c.M(c.sena)}: ${c.senaCobrada ? `cobrado ${c.M(c.senaCobrada)}, falta ${c.M(c.senaFalta)}` : 'falta registrarlo como pago (cómo y dónde se pagó)'}.`,
+        h('button.btn.small.primary', { type: 'button', onclick: () => pagoForm(o, null, { tipo: 'sena', monto: Math.min(c.senaFalta, c.pendiente) }) }, `Registrar ${senaTxt.toLowerCase()}`))) : null,
       h('h3', { style: { margin: '16px 0 8px' } }, 'Pagos'),
       h('div.list',
         c.filas.map((f) => pagoItem(c, f, o)),
@@ -859,6 +870,7 @@
         h('div.small.muted', [UI.fmtDay(p.fecha), dondeTexto(p), num(p.tc) ? 'TC ' + tcFmt(num(p.tc)) : '', reciboTexto(p.recibo) ? 'recibo ' + reciboTexto(p.recibo) : ''].filter(Boolean).join(' · ')),
         (p.cheques || []).map((ch) => h('div.small', { style: { marginTop: '3px' } }, chequeTexto(p, ch), ' ', chequeBadge(ch))),
         h('div.small', { style: { marginTop: '3px' } }, h('span.muted', 'Saldo después: '), f.saldoDespues > 0 ? c.M(f.saldoDespues) : h('b', 'cero')),
+        p.retiro && p.retiro.buscado ? h('div.small', { style: { marginTop: '3px' } }, `Lo fuimos a buscar: ${p.retiro.quien}${p.retiro.donde ? ' · ' + p.retiro.donde : ''}`) : null,
         !p.registrado ? h('div.small', { style: { color: 'var(--warn)', marginTop: '2px' } }, 'Falta cargarlo en nuestros registros') : null,
         p.factura === 'solicitar' ? h('div.small', { style: { color: 'var(--warn)', marginTop: '2px' } }, 'Hay que solicitar la factura') : null),
       h('button.btn.small.ghost', { type: 'button', onclick: (e) => { e.stopPropagation(); go(`recibo/${o._id}/${p._id}`); } }, icon('file'), 'Recibo'));
@@ -935,6 +947,7 @@
     cmp('registrado', (p) => (p.registrado ? 'sí' : 'no'));
     cmp('factura', (p) => ({ tiene: 'ya tiene', solicitar: 'hay que solicitarla' }[p.factura] || ''));
     cmp('comprobantes', (p) => String((p.comprobantes || []).length));
+    cmp('retiro', (p) => (p.retiro && p.retiro.buscado ? `lo retiró ${p.retiro.quien}${p.retiro.donde ? ' en ' + p.retiro.donde : ''}` : ''));
     cmp('nota', (p) => p.nota || '');
     return out;
   }
@@ -974,6 +987,19 @@
     });
     let chequesEd = null;
     const chequesBox = h('div');
+    // Seña o anticipo: lo pactado, lo cobrado y lo que falta, con el equivalente en la moneda elegida.
+    const senaAntes = tipo === 'sena' && p && p.tipo === 'sena' ? valorAntes : 0;
+    const senaCobradaSin = CALC.round2(c.senaCobrada - senaAntes); // cobrado de seña sin contar este pago
+    const senaBox = h('div.card.info.sena-box', { style: { marginBottom: '14px' } });
+    // Efectivo: ¿lo fuimos a buscar? Quién lo retiró y dónde.
+    const r0 = p0.retiro || {};
+    const retiroF = UI.field({ label: '¿Lo fuimos a buscar?', name: 'retiroBuscado', type: 'select', value: r0.buscado ? 'si' : 'no', options: [['no', 'No'], ['si', 'Sí']] });
+    const quienes = [...new Set([...users.map((u) => u.nombre), ...cat.vendedores.map((x) => x.nombre), ...Object.values(pagosPorObra).flat().map((x) => (x.retiro || {}).quien)].filter(Boolean))].sort();
+    const quienListId = 'retiro-' + uid();
+    const retiroDatos = h('div', fila2(
+      h('label.field', h('span', 'Quién lo retiró'), h('input', { name: 'retiroQuien', type: 'text', list: quienListId, value: r0.quien || '', placeholder: 'Ej: Fede Ferrari', autocomplete: 'off' }), h('datalist', { id: quienListId }, quienes.map((q) => h('option', { value: q })))),
+      UI.field({ label: 'Dónde', name: 'retiroDonde', value: r0.donde || '', placeholder: 'Ej: en la obra, oficina del club' })));
+    const retiroBox = h('div', retiroF, retiroDatos);
     const montoInp = numeroInput(montoF.querySelector('input'));
     const tcInp = numeroInput(tcF.querySelector('input'));
     const monedaSel = monedaF.querySelector('select');
@@ -993,9 +1019,10 @@
         infoRow('Pagado', `${c.M(CALC.round2(c.cobrado - valorAntes))}`),
         infoRow(p ? 'Saldo sin este pago' : 'Saldo', h('b', c.M(pendiente))),
         prox ? infoRow('Próxima cuota', `N° ${prox.n}${prox.fecha ? ' · ' + UI.fmtDay(prox.fecha) : ''} · ${c.M(prox.pendiente)}`) : null),
-      tipo === 'sena' ? h('p.small', { style: { marginTop: '-4px' } }, h('span.badge', c.fin ? 'Anticipo' : 'Seña'), ` Se registra como pago de la ${senaTxt}.`) : null,
+      tipo === 'sena' ? senaBox : null,
       fila2(fechaF, formaF),
       destinoBox,
+      retiroBox,
       h('div.row', { style: { gap: '10px', alignItems: 'flex-start' } }, h('div', { style: { width: '34%' } }, monedaF), h('div.grow', montoF)),
       chequesBox,
       tcF, tcNota,
@@ -1076,7 +1103,9 @@
       const monto = forma === 'cheque' ? CALC.round2(cheques.reduce((a, ch) => a + num(ch.monto), 0)) : num(val.monto);
       const tc = num(val.tc);
       const ct = destino.cuentaId && cuentaDe(destino.cuentaId);
-      return { val, forma, destino, cheques, moneda, monto, tc, pideFactura: !!(ct && ct.pideFactura) };
+      const efectivo = forma === 'efectivo_ars' || forma === 'efectivo_usd';
+      const retiro = efectivo ? { buscado: val.retiroBuscado === 'si', quien: val.retiroBuscado === 'si' ? (val.retiroQuien || '').trim() : '', donde: val.retiroBuscado === 'si' ? (val.retiroDonde || '').trim() : '' } : null;
+      return { val, forma, destino, cheques, moneda, monto, tc, retiro, pideFactura: !!(ct && ct.pideFactura) };
     };
 
     const refresh = () => {
@@ -1099,6 +1128,18 @@
       equiv.replaceChildren(...partes);
       equiv.hidden = !partes.length;
       facturaBox.hidden = !b.pideFactura;
+      const efectivo = b.forma === 'efectivo_ars' || b.forma === 'efectivo_usd';
+      retiroBox.hidden = !efectivo;
+      retiroDatos.hidden = !(efectivo && b.val.retiroBuscado === 'si');
+      if (tipo === 'sena') {
+        // Lo pactado pasado a la moneda en que paga: «US$ 7.500 = $ 11.775.000 a TC 1.570».
+        const enOtra = (n) => (b.moneda !== c.moneda && b.tc ? ` = ${CALC.money(c.moneda === 'USD' ? n * b.tc : n / b.tc, b.moneda)} a TC ${fmtNum(b.tc)}` : '');
+        const falta = Math.max(0, CALC.round2(c.sena - senaCobradaSin));
+        senaBox.replaceChildren(...[
+          infoRow(`${c.fin ? 'Anticipo pactado' : 'Seña pactada'}`, h('b', c.M(c.sena) + enOtra(c.sena))),
+          senaCobradaSin ? infoRow(`Cobrado de ${senaTxt}`, c.M(senaCobradaSin)) : null,
+          senaCobradaSin ? infoRow(`Falta de ${senaTxt}`, c.M(falta) + enOtra(falta)) : null].filter(Boolean));
+      }
     };
 
     // Monto propuesto: el saldo (o la próxima cuota, o la seña) en la moneda en que paga.
@@ -1136,6 +1177,19 @@
       const draft = { forma: b.forma, moneda: b.moneda, monto: b.monto, tc: b.tc, cheques: b.cheques };
       const valor = CALC.valorPago(draft, c.moneda);
       if (valor > pendiente + 0.01) throw new Error(`El pago (${c.M(valor)}) supera el saldo (${c.M(pendiente)}). Revisá el monto o el presupuesto de la venta.`);
+      if (b.retiro && b.retiro.buscado && !b.retiro.quien) throw new Error('Poné quién lo fue a buscar.');
+      // Seña: si lo cobrado de seña no coincide con lo pactado, ¿se actualiza lo pactado?
+      let nuevaSena = null;
+      if (tipo === 'sena') {
+        const senaDespues = CALC.round2(senaCobradaSin + Math.min(valor, pendiente));
+        if (Math.abs(senaDespues - c.sena) > 0.01) {
+          const r = await elegir(`¿Actualizar ${c.fin ? 'el anticipo pactado' : 'la seña pactada'}?`,
+            `${c.fin ? 'El anticipo pactado' : 'La seña pactada'} es ${c.M(c.sena)} y con este pago lo cobrado de ${senaTxt} queda en ${c.M(senaDespues)}. ¿Actualizar ${c.fin ? 'el anticipo pactado' : 'la seña pactada'} a ${c.M(senaDespues)}?${c.fin ? ' Las cuotas se recalculan.' : ''}`,
+            [['no', senaDespues < c.sena ? `No, falta cobrar ${c.M(CALC.round2(c.sena - senaDespues))}` : `No, dejar ${c.M(c.sena)}`], ['si', 'Sí, actualizar', 'primary']]);
+          if (!r) return false;
+          if (r === 'si') nuevaSena = senaDespues;
+        }
+      }
       const col = `ventas/${o._id}/pagos`;
       const id = p ? p._id : cloud.newId();
       // Comprobantes: los nuevos se guardan aparte; en el pago queda la lista.
@@ -1147,7 +1201,7 @@
         obraId: o._id, tipo, fecha: val.fecha, moneda: b.moneda, monto: b.monto, tc: b.tc,
         tcManual: !!b.tc && (!tcBNA || Math.abs(b.tc - tcBNA) > 0.001), equivalente: CALC.equivalente(b.monto, b.moneda, b.tc),
         monedaVenta: c.moneda, valor, forma: b.forma, destino: b.destino, cheques: b.cheques, comprobantes,
-        registrado: !!val.registrado, factura: b.pideFactura ? val.factura : '', nota: val.nota,
+        registrado: !!val.registrado, factura: b.pideFactura ? val.factura : '', nota: val.nota, retiro: b.retiro,
         editadoPor: me.email, editadoPorNombre: me.nombre, editadoEn: cloud.serverTime(),
       };
       if (nuevo) {
@@ -1160,6 +1214,7 @@
       data.historial = [...((p && p.historial) || []), { fecha: new Date().toISOString(), por: me.email, porNombre: me.nombre, accion: nuevo ? 'registrado' : 'editado', cambios }];
       cloud.write([
         { op: 'set', col, id, data },
+        ...(nuevaSena != null ? [{ op: 'update', col: 'ventas', id: o._id, data: { sena: nuevaSena, ...stamp() } }] : []),
         ...nuevos.map((a) => ({ op: 'set', col: `ventas/${o._id}/comprobantes`, id: a.id, data: { obraId: o._id, pagoId: id, nombre: a.nombre, mime: a.mime, data: a.data, por: me.email, porNombre: me.nombre, fecha: new Date().toISOString() } })),
         ...[...comp.quitados].map((cid) => ({ op: 'delete', col: `ventas/${o._id}/comprobantes`, id: cid })),
       ]);
@@ -1325,7 +1380,7 @@
   // Registrar un pago desde las listas: si la seña no está registrada, se propone primero la seña.
   function registrarPago(o) {
     const c = cobro(o);
-    pagoForm(o, null, c.senaSinRegistrar ? { tipo: 'sena', monto: Math.min(c.sena, c.pendiente) } : {});
+    pagoForm(o, null, c.senaSinRegistrar ? { tipo: 'sena', monto: Math.min(c.senaFalta, c.pendiente) } : {});
   }
 
   function habilitar(o, force) {
@@ -1794,7 +1849,7 @@
         h('div.ellipsis', { style: { fontWeight: 600 } }, enDetalle ? `Llamado de ${p.label}` : o.nombre),
         h('div.small.muted.ellipsis', enDetalle
           ? (p.hecho ? `${p.porNombre || ''} · ${UI.fmtDay(p.hechoFecha)}${p.nota ? ' · “' + p.nota + '”' : ''}` : UI.fmtDay(p.fecha))
-          : `${p.label} · ${o.cliente || 'sin cliente'} · ${UI.fmtDay(p.fecha)}`)),
+          : `${p.label} · ${clientePed(o) || 'sin cliente'} · ${UI.fmtDay(p.fecha)}`)),
       badge);
   }
 
@@ -1807,7 +1862,7 @@
     UI.sheet({
       title: `Llamado de ${p.label}`,
       body: [
-        h('p', h('b', o.nombre), h('br'), h('span.muted', `${o.cliente || 'Sin cliente cargado'} · agendado para el ${UI.fmtDay(p.fecha)}`)),
+        h('p', h('b', o.nombre), h('br'), h('span.muted', `${clientePed(o) || 'Sin cliente cargado'} · agendado para el ${UI.fmtDay(p.fecha)}`)),
         tel ? h('div.row', { style: { marginBottom: '16px' } },
           h('a.btn.grow', { href: telHref(tel) }, icon('phone'), 'Llamar'),
           wa ? h('a.btn.grow', { href: wa, target: '_blank', rel: 'noopener' }, icon('whatsapp'), 'WhatsApp') : null)
@@ -1855,7 +1910,7 @@
           h('div', h('div.acta-title', 'Acta de entrega'), h('div.acta-sub', `N° ${o._id.slice(0, 8).toUpperCase()} · ${UI.fmtDay(fecha)}`))),
         h('h3', 'Cliente y obra'),
         h('table.acta-table', h('tbody',
-          row('Cliente', o.cliente), row('Teléfono', telDe(o)), row('Obra', o.nombre), row('Ubicación', o.ubicacion))),
+          row('Cliente', clientePed(o)), row('Teléfono', telDe(o)), row('Obra', o.nombre), row('Ubicación', o.ubicacion))),
         h('h3', 'Trabajo entregado'),
         h('table.acta-table', h('tbody',
           row('Tipo', tipoNombre(o.tipo) + (num(o.cantidad) > 1 ? ` · ${o.cantidad} canchas` : '')),
@@ -1893,6 +1948,8 @@
       numero: reciboTexto(p.recibo),
       fecha: UI.fmtDay(p.fecha),
       cliente: o.cliente || o.nombre,
+      clientePedido: [o.cliente || o.nombre, pedidoTexto(o)].filter(Boolean).join(' · '),
+      retiro: p.retiro && p.retiro.buscado ? `Lo retiró ${p.retiro.quien}${p.retiro.donde ? ' en ' + p.retiro.donde : ''}` : '',
       cuit: cli.cuit || '',
       obra: o.nombre,
       pedido: o.pedido || '',
@@ -1926,12 +1983,12 @@
         h('div.acta-head',
           h('img', { src: '../shared/icons/logo.png', alt: 'SLAVON' }),
           h('div', h('div.acta-title', 'Recibo'), h('div.acta-sub', `${d.numero} · ${d.fecha}`))),
-        h('p.recibo-texto', 'Recibimos de ', h('b', d.cliente), d.cuit ? ` (CUIT ${d.cuit})` : '', ' la suma de ', h('b', d.monto), ` (son ${d.letras}) en concepto de ${d.concepto}.`),
+        h('p.recibo-texto', 'Recibimos de ', h('b', d.cliente), d.pedido ? ` (Pedido N° ${d.pedido})` : '', d.cuit ? ` (CUIT ${d.cuit})` : '', ' la suma de ', h('b', d.monto), ` (son ${d.letras}) en concepto de ${d.concepto}.`),
         h('table.acta-table', h('tbody',
           row('Forma de pago', d.forma),
+          row('Retiro', d.retiro),
           row('Dólar BNA del día', d.tc),
           row('Equivale a', d.equivalente),
-          row('N° de pedido', d.pedido),
           row('Nota', d.nota))),
         d.cheques.length ? [h('h3', 'Cheques'), h('table.acta-table', h('tbody', d.cheques.map((ch) => h('tr', h('th', `N° ${ch.numero}`), h('td', [ch.banco, ch.aNombreDe ? 'a nombre de ' + ch.aNombreDe : '', 'cobro ' + ch.fechaCobro, ch.monto].filter(Boolean).join(' · '))))))] : null,
         h('h3', 'Estado de la cuenta'),
@@ -1982,7 +2039,7 @@
     doc.setDrawColor(200).line(M, y, 210 - M, y);
     y += 10;
     doc.setFontSize(12);
-    const parrafo = `Recibimos de ${d.cliente}${d.cuit ? ` (CUIT ${d.cuit})` : ''} la suma de ${d.monto} (son ${d.letras}) en concepto de ${d.concepto}.`;
+    const parrafo = `Recibimos de ${d.cliente}${d.pedido ? ` (Pedido N° ${d.pedido})` : ''}${d.cuit ? ` (CUIT ${d.cuit})` : ''} la suma de ${d.monto} (son ${d.letras}) en concepto de ${d.concepto}.`;
     const lineas = doc.splitTextToSize(pdfTxt(parrafo), W);
     doc.text(lineas, M, y);
     y += lineas.length * 6 + 6;
@@ -1994,9 +2051,9 @@
       y += Math.max(1, vs.length) * 5.5 + 2;
     };
     fila('Forma de pago', d.forma);
+    fila('Retiro', d.retiro);
     fila('Dólar BNA del día', d.tc);
     fila('Equivale a', d.equivalente);
-    fila('N° de pedido', d.pedido);
     fila('Nota', d.nota);
     if (d.cheques.length) {
       y += 3;
@@ -2018,7 +2075,9 @@
     doc.setDrawColor(120).line(210 - M - 70, yf, 210 - M, yf);
     doc.setFont('helvetica', 'normal').setFontSize(10).text('Por SLAVON', 210 - M - 35, yf + 6, { align: 'center' });
     doc.setFontSize(9).setTextColor(110).text('Firma y aclaración', 210 - M - 35, yf + 11, { align: 'center' });
-    const nombre = pdfTxt(`Recibo ${d.numero.replace('N° ', '')} - ${d.cliente}`).replace(/[\\/:*?"<>|]/g, '').slice(0, 80);
+    // Nombre del archivo sin acentos ni eñes (algunos celulares los cambian por «download»).
+    const nombre = pdfTxt(`Recibo ${d.numero.replace('N° ', '')} - ${d.cliente}${d.pedido ? ' - Pedido ' + d.pedido : ''}`)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w .()-]/g, '').slice(0, 80);
     doc.save(`${nombre}.pdf`);
   }
 
