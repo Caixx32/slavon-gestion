@@ -1,11 +1,11 @@
 'use strict';
 
 // App instalable y que abre sin señal. Al cambiar cualquier archivo, subí el número de CACHE.
-const CACHE = 'obras-v14';
+const CACHE = 'obras-v15';
 const SHELL = [
-  './', './index.html', './app.js?v=14', './etapas.js?v=14', './calculos.js?v=14', './obras.css?v=14', './manifest.webmanifest',
-  '../shared/base.css?v=14', '../shared/config.js?v=14', '../shared/cloud.js?v=14', '../shared/ui.js?v=14', '../shared/boot.js?v=14',
-  '../shared/vendor/jspdf.umd.min.js', '../shared/icons/logo.png',
+  './', './index.html', './app.js?v=15', './etapas.js?v=15', './calculos.js?v=15', './obras.css?v=15', './manifest.webmanifest',
+  '../shared/base.css?v=15', '../shared/config.js?v=15', '../shared/cloud.js?v=15', '../shared/ui.js?v=15', '../shared/boot.js?v=15',
+  '../shared/vendor/jspdf.umd.min.js', '../shared/vendor/jszip.min.js', '../shared/icons/logo.png',
   '../shared/icons/logo-white.png', '../shared/icons/favicon.png', '../shared/icons/icon-192.png',
 ];
 const FIREBASE = 'https://www.gstatic.com/firebasejs/';

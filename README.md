@@ -50,12 +50,22 @@ De la venta a la post-venta:
    - **Cheques:** uno o varios por pago (n°, a nombre de, banco, fecha de cobro, monto). Pendiente: cuenta con el dólar del día en que se recibió. Cobrado: se carga la fecha real y el dólar de ese día, y se recalcula. Rechazado: deja de contar y el saldo vuelve.
    - **Pagos mal cargados:** se editan (queda el historial de quién cambió qué) o se borran. Sólo admin y administración.
    - **Recibo PDF** de cada pago, con número correlativo, monto en letras y saldo: se descarga o se imprime. Para sacar el número hace falta conexión.
-   - **Contado:** se puede entregar recién con el saldo en cero.
+   - **Contado:** se puede entregar con el saldo en cero y marcado «Saldo cobrado» (botón aparte de «Pasar a Entregas»).
    - **Financiado:** se puede entregar con el contrato firmado en nuestro poder; los pagos van cubriendo las cuotas en orden y se ve cuáles están vencidas.
    - **Aviso:** 7 días antes de la entrega avisa lo que falte.
    - **Buscador de clientes** en cada área: por nombre, club, obra, teléfono, mail o n° de pedido.
    - **Catálogos** (*Más → Catálogos*): vendedores, revendedores, clientes, proveedores (con sus cuentas bancarias) y cuentas propias (W. MAX SRL, Atlantis, cajas de efectivo). No se borran: se dan de baja.
 3. **Entrega** (encargado de obra): cuadro «Materiales» (lo que lleva la obra y quién lo pone; el encargado carga cuánto pegamento y cinta y completa el envío), agenda de instalación con equipo (3 de AMBA + instaladores del interior) y aviso si un equipo queda en dos obras a la vez; duración sugerida (pádel completa 5 días por cancha, pádel césped 1). Flete, logística del interior (pasajes, estadía, comidas, ayudantes, viático), etapas con fotos, incidencias (ej: base no apta, con aviso al cliente) y checklist de entrega.
+3b. **Administración:**
+   - Pestañas «Por cobrar», «Cobradas / en entrega», «Entregadas» y «Todas»: la obra no desaparece al pasar a Entregas.
+   - En cada obra:
+     - Editar la venta (es el mismo registro).
+     - Estado de saldo: presupuesto, IVA, total pagado en US$ y en $, saldo, saldo pendiente de facturar y cuotas (pagada / vencida / próxima).
+     - Facturación: monto a facturar a mano y facturas cargadas.
+     - Detalle de saldo: tabla de pagos y PDF para el cliente.
+     - Carpeta de comprobantes: ver, descargar uno o todos en .zip.
+     - Botones «Saldo cobrado» (sólo con saldo 0) y «Pasar a Entregas».
+     - Checklist administrativo, con la lógica de la factura: si tiene → razón social y CUIT; si no → ¿a dónde transfirió? → W. MAX o Atlantis: pedir la factura · otro: pedir la razón social.
 4. **Acta de entrega** para imprimir o guardar en PDF y que firme el cliente: datos, controles, fotos y garantía.
 5. **Post-venta:** llamados al mes, a los 6 meses y al año, y control del vencimiento de la garantía.
 
@@ -98,7 +108,7 @@ Un usuario por persona para todas las apps: *Obras → Más → Usuarios y permi
 
 | Carpeta / archivo | Qué tiene |
 |---|---|
-| `shared/` | Lo común a todas las apps: configuración de Firebase, conexión, login y permisos, pantalla de usuarios, estilos, íconos. En `shared/vendor/` va jsPDF (licencia MIT) para armar los PDF sin conexión. |
+| `shared/` | Lo común a todas las apps: configuración de Firebase, conexión, login y permisos, pantalla de usuarios, estilos, íconos. En `shared/vendor/` van jsPDF (MIT) para los PDF y JSZip (MIT) para el .zip de comprobantes; funcionan sin conexión. |
 | `obras/` | App Obras (`app.js`), tipos de obra, etapas y modelos de césped (`etapas.js`), cuentas de la venta: m², cuotas e importes (`calculos.js`), estilos propios, app instalable (`sw.js`, `manifest.webmanifest`). |
 | `firestore.rules` | Reglas de seguridad de la base para pegar en Firebase (incluye pagos y catálogos). |
 | `storage.rules` | Reglas de Firebase Storage (planos): los ven todos los de Obras, los suben y borran admin y administración. |
@@ -115,6 +125,9 @@ HTML, CSS y JavaScript sin compilación. Firebase (Auth + Firestore) por CDN. La
   - `materialesEntrega`: pegamento y cinta, los carga Entregas. `envios`: envío de cada ítem (sí / no / a definir), lo completa Ventas o Entregas.
   - Operación: `etapas`, `checklist`, `incidencias`, `logistica`, `postventa`.
 - `ventas/{id de la obra}`: la plata, sólo admin y administración. Presupuesto, moneda, seña o anticipo pactado, forma de pago, cuotas, `iva` (sin factura / mínimo / total y monto), `tributos`, vendedores, revendedor (con su comisión fija) y contrato.
+  - `saldoCobrado`: marca «Saldo cobrado» (fecha y quién).
+  - `facturacion`: `aFacturar` a mano y `facturas` (fecha, número, quién la emite, monto, pago).
+  - `checklistAdmin`: tildes, «¿confirmó el mail?», «¿pagó percepciones?» y la factura (tiene, razón social, CUIT, a dónde transfirió, pedir factura o razón social).
   - `ventas/{id}/pagos/{id}`: cada pago (también la seña): fecha, moneda, monto, dólar, equivalente, valor en la moneda de la venta, forma, destino, cheques, comprobantes, registrado, factura, n° de recibo, historial.
   - `ventas/{id}/comprobantes/{id}`: archivo de cada comprobante.
 - Catálogos (sólo admin y administración, con `activo`): `vendedores`, `revendedores`, `clientes`, `proveedores` (con `cuentas`), `cuentas` (cuentas propias y cajas), `cespedes` (modelo, fábrica, deportes, altura, arena y caucho por m², blanco, multisport, bicolor, rollo).

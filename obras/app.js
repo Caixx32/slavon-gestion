@@ -505,20 +505,89 @@
   // Próxima cuota sin pagar del todo.
   const proximaCuota = (c) => c.cuotas.find((q) => q.pendiente > 0);
 
-  // ¿Se cumple la condición para entregar? Contado: saldo cobrado completo. Financiado: contrato firmado en nuestro poder.
+  /*
+   * Marca «Saldo cobrado»: sólo se pone con saldo 0 y deja quién y cuándo.
+   * Si después el saldo vuelve a subir (un cheque rechazado, un pago borrado, un precio mayor), deja de valer:
+   * se avisa y se borra al guardar el cambio.
+   */
+  function estadoCobro(o) {
+    const c = cobro(o);
+    const marca = (ventas[o._id] || {}).saldoCobrado || null;
+    const enCero = c.precio > 0 && c.pendiente <= 0;
+    return { c, marca, enCero, valida: !!marca && enCero, vencida: !!marca && !enCero, paraMarcar: !marca && enCero };
+  }
+  // Borra la marca si con el cambio el saldo deja de ser 0.
+  const opsQuitarMarca = (o, saldoNuevo) => ((ventas[o._id] || {}).saldoCobrado && saldoNuevo > 0.005
+    ? [{ op: 'update', col: 'ventas', id: o._id, data: { saldoCobrado: null, saldoCobradoQuitado: { fecha: UI.today(), porNombre: me.nombre, saldo: saldoNuevo } } }] : []);
+
+  // ¿Se cumple la condición para entregar? Contado: saldo 0 y marcado «Saldo cobrado». Financiado: contrato firmado.
   function condicionOk(o) {
     const v = ventas[o._id];
     if (!v) return false;
     if (esFinanciado(v)) return !!v.contratoFirmado;
+    return estadoCobro(o).valida;
+  }
+
+  /* ----- Facturación: monto a facturar (a mano) y facturas cargadas ----- */
+  const EMISORES = [['wmax', 'W. MAX SRL'], ['atlantis', 'Atlantis'], ['otro', 'Otro']];
+  function facturacionDe(o) {
+    const v = ventas[o._id] || {};
+    const sinFactura = !v.iva || v.iva.tipo === 'sin';
+    const f = v.facturacion || {};
+    const facturas = f.facturas || [];
+    const aFacturar = sinFactura ? 0 : num(f.aFacturar);
+    const facturado = CALC.round2(facturas.reduce((a, x) => a + num(x.monto), 0));
+    return { sinFactura, aFacturar, facturas, facturado, pendiente: Math.max(0, CALC.round2(aFacturar - facturado)), cargado: f.aFacturar !== undefined && f.aFacturar !== null && f.aFacturar !== '' };
+  }
+
+  /* ----- Checklist administrativo ----- */
+  // Lo que sale de los pagos: ¿a qué cuenta transfirió? (W. MAX, Atlantis u otro).
+  function transfirioSegunPagos(o) {
+    const ps = (pagosPorObra[o._id] || []).filter((p) => p.forma === 'cuenta' || p.forma === 'proveedor' || (p.forma === 'cheque' && (p.destino || {}).cuentaId));
+    if (!ps.length) return '';
+    const nombres = ps.map((p) => norm((p.destino || {}).cuentaNombre || ''));
+    if (nombres.some((n) => /w\.?\s*max/.test(n))) return 'wmax';
+    if (nombres.some((n) => n.includes('atlantis'))) return 'atlantis';
+    return 'otro';
+  }
+  const pagoPorTransferencia = (o) => (pagosPorObra[o._id] || []).some((p) => p.forma === 'cuenta' || p.forma === 'proveedor');
+  const tributoPercepcion = (o) => ((ventas[o._id] || {}).tributos || []).some((t) => /percep/i.test(t.nombre || ''));
+  // El checklist de una obra con lo que aplica, lo hecho y lo que falta. Las respuestas que salen de los datos cuentan.
+  function checklistAdmin(o) {
+    const v = ventas[o._id] || {};
+    const ch = v.checklistAdmin || {};
+    const tildes = ch.tildes || {};
+    const fac = ch.factura || {};
     const c = cobro(o);
-    return c.precio > 0 && c.pendiente <= 0;
+    const sugTransfirio = transfirioSegunPagos(o);
+    const transfirio = fac.transfirioA || sugTransfirio;
+    const percepciones = ch.percepciones || (tributoPercepcion(o) ? 'si' : '');
+    const pasos = [];
+    for (const it of window.OBRAS_CHECKLIST_ADMIN) {
+      if (it.cuando === 'saldo' && !(c.pendiente > 0)) continue;
+      if (it.cuando === 'transferencia' && !pagoPorTransferencia(o)) continue;
+      let hecho = false;
+      if (it.tipo === 'tilde') hecho = !!(tildes[it.id] && tildes[it.id].ok);
+      if (it.tipo === 'mail') hecho = ch.confirmoMail === 'si' || ch.confirmoMail === 'no';
+      if (it.tipo === 'percepciones') hecho = percepciones === 'si' || percepciones === 'no';
+      if (it.tipo === 'factura') {
+        if (fac.tiene === 'si') hecho = !!(fac.razonSocial && fac.cuit);
+        if (fac.tiene === 'no') hecho = transfirio === 'otro' ? !!(fac.pedirRazonSocial && fac.pedirRazonSocial.ok) : !!transfirio && !!(fac.pedirFactura && fac.pedirFactura.ok);
+      }
+      pasos.push({ ...it, hecho });
+    }
+    let aviso = '';
+    if (fac.tiene === 'no' && (transfirio === 'wmax' || transfirio === 'atlantis') && !(fac.pedirFactura && fac.pedirFactura.ok)) aviso = 'Pedir factura';
+    if (fac.tiene === 'no' && transfirio === 'otro' && !(fac.pedirRazonSocial && fac.pedirRazonSocial.ok)) aviso = 'Pedir razón social';
+    return { ch, tildes, fac, transfirio, sugTransfirio, percepciones, pasos, hechos: pasos.filter((x) => x.hecho).length, total: pasos.length, aviso };
   }
   const faltaTexto = (o) => {
     const v = ventas[o._id];
     if (!v) return 'Faltan los datos de la venta';
     if (esFinanciado(v)) return 'Falta el contrato firmado';
-    const c = cobro(o);
-    return `Falta cobrar el saldo: ${c.M(c.pendiente)}`;
+    const e = estadoCobro(o);
+    if (e.enCero) return 'Falta marcar «Saldo cobrado»';
+    return `Falta cobrar el saldo: ${e.c.M(e.c.pendiente)}`;
   };
 
   // Ventas con la entrega cerca (o pasada) y la condición sin cumplir.
@@ -723,38 +792,82 @@
   /* ---------- 2. Administración ---------- */
 
   function viewAdmin() {
-    const enAdmin = obras.filter((o) => o.estado === 'vendida').sort((a, b) => (a.fechaEntrega || '9').localeCompare(b.fechaEntrega || '9'));
-    const listas = enAdmin.filter((o) => condicionOk(o));
-    const urgentes = enAdmin.filter((o) => !condicionOk(o) && o.fechaEntrega && UI.daysUntil(o.fechaEntrega) <= AVISO_DIAS);
-    const resto = enAdmin.filter((o) => !listas.includes(o) && !urgentes.includes(o));
-    const aCobrar = sumaMonedas(enAdmin.filter((o) => !esFinanciado(ventas[o._id]) && !condicionOk(o)).map((o) => { const c = cobro(o); return [c.moneda, c.pendiente]; }));
-    const pendRow = (o) => {
-      const c = cobro(o);
+    if (!ui.adminTab) ui.adminTab = 'cobrar';
+    const conVenta = obras.filter((o) => ventas[o._id]);
+    const enAdmin = conVenta.filter((o) => o.estado === 'vendida').sort((a, b) => (a.fechaEntrega || '9').localeCompare(b.fechaEntrega || '9'));
+    const enEntrega = conVenta.filter((o) => esCurso(o) && o.estado !== 'vendida' && o.estado !== 'venta');
+    const entregadas = conVenta.filter(esTerminada).sort((a, b) => (b.fin || '').localeCompare(a.fin || ''));
+    const cuotasVencidas = conVenta.filter((o) => { const c = cobro(o); return c.fin && c.cuotas.some((q) => q.pendiente > 0 && q.fecha && UI.daysUntil(q.fecha) < 0); });
+
+    // Una fila de Administración: saldo, cuotas, checklist y lo que falta.
+    const fila = (o, boton) => {
+      const e = estadoCobro(o);
+      const c = e.c;
+      const k = checklistAdmin(o);
+      const venc = c.fin ? c.cuotas.filter((q) => q.pendiente > 0 && q.fecha && UI.daysUntil(q.fecha) < 0).length : 0;
       const enPesos = c.moneda === 'USD' && tcHoy() && c.pendiente ? ' = ' + ars(c.pendiente * tcHoy()) : '';
-      return h('div.item', { onclick: () => go('obra/' + o._id) },
-        h('span.dot', { class: UI.daysUntil(o.fechaEntrega || '9999-12-31') <= AVISO_DIAS ? 'late' : '' }, c.fin ? '✎' : '$'),
+      const estado = c.pendiente > 0 ? `saldo ${c.M(c.pendiente)}${enPesos}` : e.valida ? 'saldo cobrado' : c.fin ? 'saldo 0' : 'saldo 0, falta marcar «Saldo cobrado»';
+      return h('div.item', { onclick: () => go('obra/' + o._id + '/admin') },
+        h('span.dot', { class: c.pendiente <= 0 ? 'done' : UI.daysUntil(o.fechaEntrega || '9999-12-31') <= AVISO_DIAS && esVendida(o) ? 'late' : '' }, c.fin ? '✎' : '$'),
         h('div.grow', { style: { minWidth: 0 } },
           tituloObra(o),
-          h('div.small.muted.ellipsis', c.fin ? 'Financiado · falta el contrato firmado'
-            : `Contado · saldo ${c.M(c.pendiente)}${enPesos}${c.cobrado ? ` · pagado ${c.M(c.cobrado)} de ${c.M(c.total)}` : ''}`)),
-        urgencia(o.fechaEntrega),
-        h('button.btn.small', { type: 'button', onclick: (e) => { e.stopPropagation(); if (c.fin) registrarContrato(o); else registrarPago(o); } }, c.fin ? 'Contrato recibido' : 'Registrar pago'));
+          h('div.small.muted.ellipsis', [c.fin ? (c.v.contratoFirmado ? 'Financiado' : 'Financiado · falta el contrato') : 'Contado', estado].join(' · ')),
+          h('div.row.wrap', { style: { gap: '4px', marginTop: '4px' } },
+            h('span.badge', { class: k.hechos === k.total ? 'ok' : '' }, `Checklist ${k.hechos} de ${k.total}`),
+            k.aviso ? h('span.badge.red', k.aviso) : null,
+            venc ? h('span.badge.red', venc > 1 ? `${venc} cuotas vencidas` : '1 cuota vencida') : null,
+            !esVendida(o) ? h('span.badge.blue', AREAS[areaDe(o)].nombre) : null)),
+        boton || null);
     };
+    const botonCobro = (o) => {
+      const e = estadoCobro(o);
+      if (e.c.fin) return e.c.v.contratoFirmado ? null : h('button.btn.small', { type: 'button', onclick: (ev) => { ev.stopPropagation(); registrarContrato(o); } }, 'Contrato recibido');
+      if (e.paraMarcar) return h('button.btn.small', { type: 'button', onclick: (ev) => { ev.stopPropagation(); marcarSaldoCobrado(o); } }, icon('check'), 'Saldo cobrado');
+      if (e.c.pendiente > 0) return h('button.btn.small', { type: 'button', onclick: (ev) => { ev.stopPropagation(); registrarPago(o); } }, 'Registrar pago');
+      return null;
+    };
+
+    const seg = h('div.seg.seg-scroll', { style: { marginTop: '14px' } }, [['cobrar', `Por cobrar (${enAdmin.length})`], ['entrega', `Cobradas / en entrega (${enEntrega.length})`], ['entregadas', `Entregadas (${entregadas.length})`], ['todas', 'Todas']].map(([val, t]) =>
+      h('button', { type: 'button', class: ui.adminTab === val ? 'on' : '', onclick: () => { ui.adminTab = val; render(); } }, t)));
+
+    let contenido;
+    if (ui.adminTab === 'cobrar') {
+      const listas = enAdmin.filter((o) => condicionOk(o));
+      const paraMarcar = enAdmin.filter((o) => !esFinanciado(ventas[o._id]) && estadoCobro(o).paraMarcar);
+      const urgentes = enAdmin.filter((o) => !condicionOk(o) && !paraMarcar.includes(o) && o.fechaEntrega && UI.daysUntil(o.fechaEntrega) <= AVISO_DIAS);
+      const resto = enAdmin.filter((o) => !listas.includes(o) && !paraMarcar.includes(o) && !urgentes.includes(o));
+      const aCobrar = sumaMonedas(enAdmin.filter((o) => !esFinanciado(ventas[o._id])).map((o) => { const c = cobro(o); return [c.moneda, c.pendiente]; }));
+      contenido = [
+        h('div.kpis',
+          kpi(urgentes.length, `Urgentes (entrega en ${AVISO_DIAS} días o menos)`, null, urgentes.length ? 'bad' : ''),
+          kpi(aCobrar, 'Saldos de contado a cobrar'),
+          kpi(enAdmin.filter((o) => esFinanciado(ventas[o._id]) && !condicionOk(o)).length, 'Contratos por firmar'),
+          kpi(cuotasVencidas.length, 'Obras con cuotas vencidas', null, cuotasVencidas.length ? 'bad' : '')),
+        section('Listas para pasar a Entregas', listas.map((o) => fila(o, faltaPlano(o)
+          ? h('button.btn.small', { type: 'button', onclick: (e) => { e.stopPropagation(); editObra(o); } }, 'Adjuntar plano')
+          : h('button.btn.small.primary', { type: 'button', onclick: (e) => { e.stopPropagation(); habilitar(o); } }, 'Pasar a Entregas'))), 'Nada listo para pasar.'),
+        paraMarcar.length ? section('Saldo en cero: falta marcar «Saldo cobrado»', paraMarcar.map((o) => fila(o, botonCobro(o))), '') : null,
+        section('Urgentes', urgentes.map((o) => fila(o, botonCobro(o))), 'No hay entregas próximas con saldo o contrato pendiente.'),
+        section('Pendientes, con entrega más adelante', resto.map((o) => fila(o, botonCobro(o))), 'No hay otras ventas pendientes.'),
+      ];
+    } else if (ui.adminTab === 'entrega') {
+      contenido = [
+        h('p.small.muted', { style: { marginTop: '12px' } }, 'Ya pasaron a Entregas. Siguen acá para el saldo, las cuotas, la facturación y el checklist administrativo.'),
+        section('En entrega', enEntrega.map((o) => fila(o, botonCobro(o))), 'No hay obras en entrega.'),
+      ];
+    } else if (ui.adminTab === 'entregadas') {
+      contenido = section('Entregadas', entregadas.map((o) => fila(o, botonCobro(o))), 'Todavía no hay obras entregadas.');
+    } else {
+      const todas = [...conVenta].sort((a, b) => (b.fechaVenta || '').localeCompare(a.fechaVenta || ''));
+      contenido = section('Todas las ventas', todas.map((o) => fila(o, botonCobro(o))), 'Todavía no hay ventas.');
+    }
+
     setMain(
-      areaHead('admin', `Antes de entregar: contado → cobrar el saldo completo · financiado → contrato firmado en nuestro poder. ${AVISO_DIAS} días antes de la entrega avisa lo que falte. Cuando está, la obra pasa a Entregas.`),
+      areaHead('admin', `Antes de entregar: contado → saldo en cero y marcado «Saldo cobrado» · financiado → contrato firmado en nuestro poder. ${AVISO_DIAS} días antes de la entrega avisa lo que falte. Después de pasar a Entregas, la obra sigue acá para el saldo, la facturación y el checklist.`),
       buscador(),
       h('div', { style: { marginTop: '14px' } }, tcBox()),
-      h('div.kpis',
-        kpi(urgentes.length, `Urgentes (entrega en ${AVISO_DIAS} días o menos)`, null, urgentes.length ? 'bad' : ''),
-        kpi(aCobrar, 'Saldos de contado a cobrar'),
-        kpi(enAdmin.filter((o) => esFinanciado(ventas[o._id]) && !condicionOk(o)).length, 'Contratos por firmar')),
-      section('Listas para pasar a Entregas', listas.map((o) => h('div.item', { onclick: () => go('obra/' + o._id) },
-        h('span.dot.done', icon('check')),
-        h('div.grow', { style: { minWidth: 0 } }, tituloObra(o), h('div.small.muted', [esFinanciado(ventas[o._id]) ? 'Contrato firmado' : 'Saldo cobrado', 'entrega ' + UI.fmtDay(o.fechaEntrega)].join(' · '))),
-        faltaPlano(o) ? h('button.btn.small', { type: 'button', onclick: (e) => { e.stopPropagation(); editObra(o); } }, 'Adjuntar plano')
-          : h('button.btn.small.primary', { type: 'button', onclick: (e) => { e.stopPropagation(); habilitar(o); } }, 'Pasar a Entregas'))), 'Nada listo para pasar.'),
-      section('Urgentes', urgentes.map(pendRow), 'No hay entregas próximas con saldo o contrato pendiente.'),
-      section('Pendientes, con entrega más adelante', resto.map(pendRow), 'No hay otras ventas pendientes.'));
+      seg,
+      contenido);
   }
 
   /* ---------- 3. Entregas ---------- */
@@ -1004,21 +1117,23 @@
   }
 
   // Cuotas plegadas: arriba el resumen (pagadas y vencidas); se abre solo si hay alguna vencida.
-  function cuotasBlock(c) {
+  function cuotasBlock(c, abierto) {
     const pagadas = c.cuotas.filter((q) => q.pendiente <= 0).length;
     const vencidas = c.cuotas.filter((q) => q.pendiente > 0 && q.fecha && UI.daysUntil(q.fecha) < 0).length;
-    return h('details.cuotas', { open: vencidas > 0 },
+    return h('details.cuotas', { open: abierto || vencidas > 0 },
       h('summary', h('b', 'Cuotas'), h('span.muted', ` · ${pagadas} de ${c.cuotas.length} pagadas`),
         vencidas ? h('span.badge.red', { style: { marginLeft: '8px' } }, vencidas > 1 ? `${vencidas} vencidas` : '1 vencida') : null),
-      h('div.list', c.cuotas.map((q) => cuotaItem(c, q))));
+      h('div.list', c.cuotas.map((q) => cuotaItem(c, q, q === proximaCuota(c)))));
   }
 
-  function cuotaItem(c, q) {
+  // Estado de cada cuota: pagada / vencida / próxima (la siguiente sin pagar) / pendiente.
+  function cuotaItem(c, q, esProxima) {
     const vencida = q.pendiente > 0 && q.fecha && UI.daysUntil(q.fecha) < 0;
     const badge = q.pendiente <= 0 ? h('span.badge.ok', 'Pagada')
-      : q.pagado ? h('span.badge.warn', `Falta ${c.M(q.pendiente)}`)
-        : vencida ? h('span.badge.red', 'Vencida')
-          : q.fecha ? h('span.badge', UI.relDays(q.fecha)) : null;
+      : vencida ? h('span.badge.red', q.pagado ? `Vencida · falta ${c.M(q.pendiente)}` : 'Vencida')
+        : q.pagado ? h('span.badge.warn', `Falta ${c.M(q.pendiente)}`)
+          : esProxima ? h('span.badge.blue', `Próxima · ${q.fecha ? UI.relDays(q.fecha) : ''}`)
+            : q.fecha ? h('span.badge', UI.relDays(q.fecha)) : null;
     return h('div.item', { style: { cursor: 'default' } },
       h('span.dot', { class: q.pendiente <= 0 ? 'done' : vencida ? 'late' : '' }, String(q.n)),
       h('div.grow', h('div', { style: { fontWeight: 600 } }, c.M(q.monto)), h('div.small.muted', q.fecha ? 'Vence el ' + UI.fmtDay(q.fecha) : 'Sin fecha de la primera cuota')),
@@ -1220,7 +1335,6 @@
       comp.el,
       h('label.check', h('input', { type: 'checkbox', name: 'registrado', checked: !!p0.registrado }), 'Registrado en nuestros registros'),
       UI.field({ label: 'Nota (opcional)', name: 'nota', value: p0.nota || '', placeholder: 'Ej: cuota 3, pagó el hijo del dueño' }),
-      !c.fin && esVendida(o) ? h('label.check', h('input', { type: 'checkbox', name: 'habilitar', checked: true }), 'Si con este pago el saldo queda en cero, pasar a Entregas') : null,
       p && (p.historial || []).length ? h('details.historial', h('summary.small.muted', 'Historial del pago'),
         h('div.small.muted', (p.historial || []).map((x) => h('div', `${UI.fmtStamp(x.fecha)} · ${x.porNombre || ''} · ${x.accion}${(x.cambios || []).length ? ': ' + x.cambios.join('; ') : ''}`)))) : null);
 
@@ -1401,17 +1515,19 @@
       const cambios = nuevo ? [] : cambiosPago(p, data);
       if (!nuevo && !cambios.length) return; // no cambió nada
       data.historial = [...((p && p.historial) || []), { fecha: new Date().toISOString(), por: me.email, porNombre: me.nombre, accion: nuevo ? 'registrado' : 'editado', cambios }];
+      const queda = CALC.round2(pendiente - valor);
+      const quitarMarca = opsQuitarMarca(o, queda);
       cloud.write([
         { op: 'set', col, id, data },
         ...(nuevaSena != null ? [{ op: 'update', col: 'ventas', id: o._id, data: { sena: nuevaSena, ...stamp() } }] : []),
+        ...quitarMarca,
         ...nuevos.map((a) => ({ op: 'set', col: `ventas/${o._id}/comprobantes`, id: a.id, data: { obraId: o._id, pagoId: id, nombre: a.nombre, mime: a.mime, data: a.data, por: me.email, porNombre: me.nombre, fecha: new Date().toISOString() } })),
         ...[...comp.quitados].map((cid) => ({ op: 'delete', col: `ventas/${o._id}/comprobantes`, id: cid })),
       ]);
-      const queda = CALC.round2(pendiente - valor);
       const txt = nuevo ? `Pago registrado (recibo ${reciboTexto(data.recibo)}).` : 'Pago corregido.';
-      if (queda > 0.005) UI.toast(`${txt} Saldo: ${c.M(queda)}.`, 3500);
-      else if (val.habilitar && esVendida(o)) setTimeout(() => habilitar(o, true), 0);
-      else UI.toast(`${txt} El saldo quedó en cero.`, 3500);
+      if (quitarMarca.length) UI.toast(`${txt} El saldo volvió a ${c.M(queda)}: se quitó la marca «Saldo cobrado».`, 5000);
+      else if (queda > 0.005) UI.toast(`${txt} Saldo: ${c.M(queda)}.`, 3500);
+      else UI.toast(`${txt} El saldo quedó en cero${esFinanciado(c.v) ? '' : ': ya se puede marcar «Saldo cobrado»'}.`, 4000);
     };
 
     const actions = [{ label: 'Cancelar' }, { label: nuevo ? 'Guardar pago' : 'Guardar', kind: 'primary', onClick: guardar }];
@@ -1419,7 +1535,9 @@
       actions.unshift({
         label: 'Borrar', kind: 'danger', onClick: async () => {
           if (!(await UI.confirm('¿Borrar el pago?', `${CALC.money(num(p.monto), p.moneda)} del ${UI.fmtDay(p.fecha)}. Deja de contar como pagado y se borran sus comprobantes. No se puede deshacer.`, 'Borrar', 'danger'))) return false;
-          cloud.write([{ op: 'delete', col: `ventas/${o._id}/pagos`, id: p._id }, ...(p.comprobantes || []).map((m) => ({ op: 'delete', col: `ventas/${o._id}/comprobantes`, id: m.id }))]);
+          const quitarMarca = opsQuitarMarca(o, CALC.round2(c.pendiente + valorAntes));
+          cloud.write([{ op: 'delete', col: `ventas/${o._id}/pagos`, id: p._id }, ...(p.comprobantes || []).map((m) => ({ op: 'delete', col: `ventas/${o._id}/comprobantes`, id: m.id })), ...quitarMarca]);
+          if (quitarMarca.length) { UI.toast('Pago borrado: el saldo dejó de ser 0 y se quitó la marca «Saldo cobrado».', 5000); return; }
           UI.toast('Pago borrado');
         },
       });
@@ -1431,35 +1549,441 @@
 
   /* ----- Solapa Administración ----- */
   function adminTab(o) {
-    const c = cobro(o);
+    const e = estadoCobro(o);
+    const c = e.c;
     const v = c.v;
     const fin = c.fin;
     const enAdmin = o.estado === 'vendida';
     const d = o.fechaEntrega ? UI.daysUntil(o.fechaEntrega) : null;
+    watchComprobantes(o._id);
     let paso = null;
-    if (o.estado === 'venta') paso = pasoBox('Todavía está en Ventas: falta completar la venta.', null);
+    if (o.estado === 'venta') paso = pasoBox('Todavía está en Ventas: falta completar la venta.', h('button.btn.small', { type: 'button', onclick: () => editObra(o) }, 'Completar'));
+    else if (e.vencida) paso = pasoBox(h('span', { style: { color: 'var(--red)' } }, `Se había marcado «Saldo cobrado», pero el saldo volvió a ${c.M(c.pendiente)}. La marca ya no vale.`), h('button.btn.small', { type: 'button', onclick: () => quitarMarcaCobrado(o) }, 'Quitar la marca'));
     else if (enAdmin && condicionOk(o) && faltaPlano(o)) paso = pasoBox(`${fin ? 'Contrato firmado' : 'Saldo cobrado'}, pero falta el plano (obligatorio en ${porQuePlano(o)}): no puede pasar a Entregas.`, h('button.btn.primary.small', { type: 'button', onclick: () => editObra(o) }, 'Adjuntar plano'));
-    else if (enAdmin && condicionOk(o)) paso = pasoBox(fin ? 'Contrato firmado. Ya se puede entregar.' : 'Saldo cobrado completo. Ya se puede entregar.', h('button.btn.primary.small', { type: 'button', onclick: () => habilitar(o) }, 'Pasar a Entregas'));
+    else if (enAdmin && condicionOk(o)) paso = pasoBox(fin ? 'Contrato firmado. Ya se puede pasar a Entregas.' : 'Saldo cobrado. Ya se puede pasar a Entregas.', null);
+    else if (enAdmin && !fin && e.paraMarcar) paso = pasoBox('El saldo está en cero: falta marcar «Saldo cobrado».', null);
     else if (enAdmin) {
       paso = pasoBox(h('span', fin ? 'Falta el contrato firmado en nuestro poder.' : `Falta cobrar el saldo antes de la entrega de materiales: ${c.M(c.pendiente)}.`,
         d != null && d <= AVISO_DIAS ? h('b', { style: { color: 'var(--red)' } }, ` Entrega ${UI.relDays(o.fechaEntrega)}: si no está, se retrasa.`) : null),
       h('button.btn.primary.small', { type: 'button', onclick: () => (fin ? registrarContrato(o) : registrarPago(o)) }, fin ? 'Contrato recibido' : 'Registrar pago'));
-    } else paso = pasoBox(`Listo: ${fin ? 'contrato firmado' : 'saldo cobrado'}. La obra ya pasó a ${AREAS[areaDe(o)].nombre}.`, null);
+    } else paso = pasoBox(`Ya pasó a ${AREAS[areaDe(o)].nombre}. ${c.pendiente > 0 ? `Saldo pendiente: ${c.M(c.pendiente)}.` : 'Saldo 0.'}`, null);
+
+    // Botones de cierre, separados: «Saldo cobrado» (sólo con saldo 0) y «Pasar a Entregas».
+    const puedeMarcar = !fin && e.paraMarcar;
+    const puedePasar = enAdmin && condicionOk(o) && !faltaPlano(o);
+    const cierre = h('div.cierre',
+      fin ? null : e.valida
+        ? h('div.cierre-ok', icon('check'), h('div.grow', h('b', 'Saldo cobrado'), h('div.small.muted', `Marcado el ${UI.fmtDay(e.marca.fecha)} por ${e.marca.porNombre || ''}`)),
+          h('button.btn.small.ghost', { type: 'button', onclick: () => quitarMarcaCobrado(o) }, 'Quitar'))
+        : h('button.btn', { type: 'button', disabled: !puedeMarcar, title: puedeMarcar ? '' : 'Se habilita cuando el saldo es 0', onclick: () => marcarSaldoCobrado(o) }, icon('check'), 'Saldo cobrado'),
+      enAdmin ? h('button.btn.primary', { type: 'button', disabled: !puedePasar, title: puedePasar ? '' : faltaTexto(o), onclick: () => habilitar(o) }, 'Pasar a Entregas') : null);
+    const ayuda = !puedePasar && enAdmin ? h('p.small.muted', { style: { margin: '6px 0 0' } },
+      fin ? (v.contratoFirmado ? (faltaPlano(o) ? 'Falta el plano para pasar a Entregas.' : '') : '«Pasar a Entregas» se habilita con el contrato firmado.')
+        : e.valida ? (faltaPlano(o) ? 'Falta el plano para pasar a Entregas.' : '') : '«Saldo cobrado» se habilita con saldo 0; «Pasar a Entregas», con el saldo marcado como cobrado.') : null;
+
     return [
       paso,
-      h('h2', fin ? 'Financiado' : 'Contado'),
-      h('div.card.info',
-        infoRow('Fecha de entrega', o.fechaEntrega ? [UI.fmtDay(o.fechaEntrega), !esTerminada(o) ? h('span.muted', ' (' + UI.relDays(o.fechaEntrega) + ')') : null] : '—'),
-        fin
-          ? infoRow('Contrato', v.contratoFirmado ? h('span', h('span.badge.ok', 'Firmado'), ' ', UI.fmtDay(v.contratoFecha), v.contratoPorNombre ? h('span.muted', ' · ' + v.contratoPorNombre) : null)
-            : h('span.row.wrap', { style: { gap: '8px' } }, h('span.badge.red', 'Falta firmado'), enAdmin ? null : h('button.btn.small', { type: 'button', onclick: () => registrarContrato(o) }, 'Contrato recibido')))
-          : infoRow('Saldo', c.pendiente > 0 ? h('span', h('b', c.M(c.pendiente)), ' ', h('span.badge.red', 'Pendiente')) : h('span.badge.ok', 'Cobrado'))),
-      cobrosBlock(o),
+      h('div.row', { style: { marginTop: '16px' } }, h('h2.grow', { style: { margin: 0 } }, fin ? 'Financiado' : 'Contado'),
+        h('button.btn.small', { type: 'button', onclick: () => editObra(o) }, icon('edit'), 'Editar venta')),
+      h('div', { style: { marginTop: '10px' } }, cierre, ayuda),
+      fin ? h('div.card.info', { style: { marginTop: '12px' } },
+        infoRow('Contrato', v.contratoFirmado ? h('span', h('span.badge.ok', 'Firmado'), ' ', UI.fmtDay(v.contratoFecha), v.contratoPorNombre ? h('span.muted', ' · ' + v.contratoPorNombre) : null)
+          : h('span.row.wrap', { style: { gap: '8px' } }, h('span.badge.red', 'Falta firmado'), h('button.btn.small', { type: 'button', onclick: () => registrarContrato(o) }, 'Contrato recibido')))) : null,
+      estadoSaldoBlock(o),
+      facturacionBlock(o),
+      detalleSaldoBlock(o),
+      comprobantesBlock(o),
+      checklistAdminBlock(o),
       h('div', { style: { marginTop: '16px' } }, tcBox()),
     ];
   }
 
+  function marcarSaldoCobrado(o) {
+    const e = estadoCobro(o);
+    if (!e.paraMarcar) return UI.toast('«Saldo cobrado» se habilita sólo con saldo 0.');
+    cloud.patch('ventas', o._id, { saldoCobrado: { fecha: UI.today(), por: me.email, porNombre: me.nombre }, ...stamp() });
+    UI.toast('Marcado «Saldo cobrado». Ya se puede pasar a Entregas.');
+  }
+  async function quitarMarcaCobrado(o) {
+    if (!(await UI.confirm('¿Quitar «Saldo cobrado»?', 'La obra no va a poder pasar a Entregas hasta volver a marcarla.', 'Quitar', 'danger'))) return;
+    cloud.patch('ventas', o._id, { saldoCobrado: null, ...stamp() });
+    UI.toast('Se quitó la marca');
+  }
+
+  // Lo pagado separado por moneda en que se pagó (sin cheques rechazados).
+  function pagadoPorMoneda(c) {
+    const t = { USD: 0, ARS: 0 };
+    for (const p of c.pagos) {
+      if (p.forma === 'cheque' && Array.isArray(p.cheques) && p.cheques.length) {
+        for (const ch of p.cheques) if (ch.estado !== 'rechazado') t[p.moneda === 'ARS' ? 'ARS' : 'USD'] += num(ch.monto);
+      } else t[p.moneda === 'ARS' ? 'ARS' : 'USD'] += num(p.monto);
+    }
+    return { USD: CALC.round2(t.USD), ARS: CALC.round2(t.ARS) };
+  }
+
+  // Estado de saldo: presupuesto, IVA, pagado (en US$ y en $), saldo, saldo pendiente de facturar y cuotas.
+  function estadoSaldoBlock(o) {
+    const c = cobro(o);
+    const v = c.v;
+    const f = facturacionDe(o);
+    const pm = pagadoPorMoneda(c);
+    const enOtra = (n) => (c.moneda === 'USD' && tcHoy() && n ? h('span.muted', ' = ' + ars(n * tcHoy()) + ' hoy') : c.moneda === 'ARS' && tcHoy() && n ? h('span.muted', ' = ' + usd(n / tcHoy()) + ' hoy') : null);
+    const prox = c.fin ? proximaCuota(c) : null;
+    return [
+      h('h3', { style: { margin: '18px 0 8px' } }, 'Estado de saldo'),
+      h('div.card.info',
+        infoRow('Presupuesto', c.precio ? [h('b', c.M(c.precio)), enOtra(c.precio)] : '—'),
+        c.fin ? infoRow('Total a cobrar', [c.M(c.total), h('div.small.muted', `${c.fin ? 'Anticipo' : 'Seña'} ${c.M(c.sena)} + ${c.plan.cantidad} cuotas de ${c.M(c.plan.cuota)}`)]) : null,
+        c.sena ? infoRow(c.fin ? 'Anticipo pactado' : 'Seña pactada', [c.M(c.sena), v.senaFecha ? h('span.muted', ' · ' + UI.fmtDay(v.senaFecha)) : null]) : null,
+        c.sena ? infoRow(`Cobrado de ${c.fin ? 'anticipo' : 'seña'}`, c.senaCobrada ? c.M(c.senaCobrada) : 'Nada todavía') : null,
+        c.sena ? infoRow(`Falta de ${c.fin ? 'anticipo' : 'seña'}`, c.senaFalta > 0.005 ? h('b', { style: { color: 'var(--red)' } }, c.M(c.senaFalta)) : h('span.badge.ok', c.fin ? 'Anticipo completo' : 'Seña completa')) : null,
+        infoRow('IVA', f.sinFactura ? 'Sin factura' : [h('div', `${v.iva.tipo === 'total' ? 'IVA total' : 'IVA mínimo'}: ${c.M(num(v.iva.monto))}`), h('div.small.muted', 'Incluido en el precio total')]),
+        (v.tributos || []).length ? infoRow('Tributos', v.tributos.map((t) => h('div', `${t.nombre}: ${c.M(num(t.monto))}`))) : null,
+        infoRow('Total pagado', [
+          h('div', h('b', `${c.M(c.cobrado)} (${c.pct} %)`)),
+          pm.USD ? h('div.small', `En dólares: ${CALC.money(pm.USD, 'USD')}`) : null,
+          pm.ARS ? h('div.small', `En pesos: ${CALC.money(pm.ARS, 'ARS')}`) : null,
+          c.aCobrar ? h('div.small.muted', `de eso, ${c.M(c.aCobrar)} en cheques a cobrar`) : null,
+          h('div', { style: { marginTop: '6px' } }, progressBar(c.pct))]),
+        infoRow('Saldo pendiente', c.pendiente > 0 ? [h('b', { style: { color: 'var(--red)' } }, c.M(c.pendiente)), enOtra(c.pendiente)] : h('span.badge.ok', 'Saldo 0')),
+        infoRow('Pendiente de facturar', f.sinFactura ? 'No se factura' : !f.cargado ? h('span.badge.warn', 'Falta el monto a facturar') : f.pendiente > 0 ? h('b', c.M(f.pendiente)) : h('span.badge.ok', 'Todo facturado')),
+        prox ? infoRow('Próxima cuota', `N° ${prox.n} · ${prox.fecha ? UI.fmtDay(prox.fecha) + ' · ' : ''}${c.M(prox.pendiente)}${prox.pagado ? ' (resto)' : ''}`) : null),
+      c.fin && c.cuotas.length ? cuotasBlock(c, true) : null,
+    ];
+  }
+
+  // Facturación: monto a facturar (a mano), facturas cargadas y lo que falta facturar.
+  function facturacionBlock(o) {
+    const c = cobro(o);
+    const f = facturacionDe(o);
+    if (f.sinFactura) return null;
+    return [
+      h('div.cabecera', h('h3', 'Facturación'),
+        h('button.btn.small', { type: 'button', onclick: () => facturaForm(o, null) }, icon('plus'), 'Agregar factura')),
+      h('div.card.info',
+        infoRow('Monto a facturar', [f.cargado ? h('b', c.M(f.aFacturar)) : h('span.badge.warn', 'Sin cargar'), ' ', h('button.btn.small.ghost', { type: 'button', onclick: () => editAFacturar(o) }, icon('edit'))]),
+        infoRow('Facturado', c.M(f.facturado) || c.M(0)),
+        infoRow('Pendiente de facturar', f.cargado ? (f.pendiente > 0 ? h('b', c.M(f.pendiente)) : h('span.badge.ok', 'Todo facturado')) : '—')),
+      f.facturas.length ? h('div.list', { style: { marginTop: '10px' } }, f.facturas.map((x) => h('div.item', { onclick: () => facturaForm(o, x) },
+        h('span.dot.done', icon('file')),
+        h('div.grow', { style: { minWidth: 0 } }, h('div', { style: { fontWeight: 600 } }, `${c.M(num(x.monto))} · ${(EMISORES.find(([k]) => k === x.emisor) || [, x.emisorOtro || 'Otro'])[1]}${x.emisor === 'otro' && x.emisorOtro ? ' (' + x.emisorOtro + ')' : ''}`),
+          h('div.small.muted', [UI.fmtDay(x.fecha), x.numero ? 'N° ' + x.numero : '', x.pagoId ? 'del pago ' + reciboTexto(((pagosPorObra[o._id] || []).find((p) => p._id === x.pagoId) || {}).recibo) : ''].filter(Boolean).join(' · '))),
+        icon('chev')))) : null,
+    ];
+  }
+
+  function editAFacturar(o) {
+    const c = cobro(o);
+    const f = facturacionDe(o);
+    const fld = UI.field({ label: `Monto a facturar (${c.moneda === 'ARS' ? '$' : 'US$'})`, name: 'aFacturar', value: f.cargado ? fmtNum(f.aFacturar) : '' });
+    numeroInput(fld.querySelector('input'));
+    UI.sheet({
+      title: 'Monto a facturar',
+      body: [h('p.muted', { style: { marginTop: '-8px' } }, o.nombre), fld, h('p.small.muted', 'Se carga a mano. El saldo pendiente de facturar es este monto menos las facturas cargadas.')],
+      actions: [{ label: 'Cancelar' }, {
+        label: 'Guardar', kind: 'primary', onClick: () => {
+          const val = UI.values(fld);
+          cloud.patch('ventas', o._id, { facturacion: { ...(c.v.facturacion || {}), aFacturar: val.aFacturar === '' ? '' : num(val.aFacturar) }, ...stamp() });
+          UI.toast('Guardado');
+        },
+      }],
+    });
+  }
+
+  function facturaForm(o, x) {
+    const c = cobro(o);
+    const nueva = !x;
+    const x0 = x || { fecha: UI.today(), emisor: transfirioSegunPagos(o) === 'atlantis' ? 'atlantis' : 'wmax' };
+    const pagos = (pagosPorObra[o._id] || []);
+    const montoF = UI.field({ label: `Monto (${c.moneda === 'ARS' ? '$' : 'US$'})`, name: 'monto', value: x ? fmtNum(num(x.monto)) : '' });
+    numeroInput(montoF.querySelector('input'));
+    const emisorF = UI.field({ label: 'La emite', name: 'emisor', type: 'select', value: x0.emisor || 'wmax', options: EMISORES });
+    const otroF = UI.field({ label: 'Cuál', name: 'emisorOtro', value: x0.emisorOtro || '' });
+    const otroBox = h('div', otroF);
+    const body = h('div', h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
+      fila2(UI.field({ label: 'Fecha', name: 'fecha', type: 'date', value: x0.fecha || UI.today() }), UI.field({ label: 'N° de factura', name: 'numero', value: x0.numero || '', placeholder: 'Ej: 0003-00001234' })),
+      fila2(emisorF, montoF), otroBox,
+      UI.field({ label: 'Pago (opcional)', name: 'pagoId', type: 'select', value: x0.pagoId || '', options: [['', 'Sin asociar'], ...pagos.map((p) => [p._id, `${reciboTexto(p.recibo)} · ${UI.fmtDay(p.fecha)} · ${CALC.money(num(p.monto), p.moneda)}`])] }));
+    const pintar = () => { otroBox.hidden = emisorF.querySelector('select').value !== 'otro'; };
+    emisorF.querySelector('select').addEventListener('change', pintar);
+    pintar();
+    const guardar = (lista) => cloud.patch('ventas', o._id, { facturacion: { ...(c.v.facturacion || {}), facturas: lista }, ...stamp() });
+    const actions = [{ label: 'Cancelar' }, {
+      label: 'Guardar', kind: 'primary', onClick: () => {
+        const val = UI.values(body);
+        if (!(num(val.monto) > 0)) throw new Error('Poné el monto de la factura.');
+        const dato = { id: x ? x.id : uid(), fecha: val.fecha, numero: val.numero, emisor: val.emisor, emisorOtro: val.emisor === 'otro' ? val.emisorOtro : '', monto: num(val.monto), pagoId: val.pagoId, porNombre: me.nombre };
+        const lista = facturacionDe(o).facturas.filter((y) => y.id !== dato.id);
+        guardar([...lista, dato].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || '')));
+        UI.toast(nueva ? 'Factura cargada' : 'Guardado');
+      },
+    }];
+    if (x) actions.unshift({ label: 'Borrar', kind: 'danger', onClick: async () => {
+      if (!(await UI.confirm('¿Borrar la factura?', `${c.M(num(x.monto))} del ${UI.fmtDay(x.fecha)}.`, 'Borrar', 'danger'))) return false;
+      guardar(facturacionDe(o).facturas.filter((y) => y.id !== x.id));
+      UI.toast('Factura borrada');
+    } });
+    UI.sheet({ title: nueva ? 'Agregar factura' : 'Factura', body: [body], actions });
+  }
+
+  // Detalle de saldo: cada pago con fecha, qué pagó, TC, equivalente en US$, dónde y cómo, y saldo después.
+  function detalleSaldoBlock(o) {
+    const c = cobro(o);
+    const fila = (f) => {
+      const p = f.p;
+      const eqUSD = p.moneda === 'USD' ? CALC.valorPago(p, 'USD') : CALC.round2(CALC.valorPago({ ...p }, 'USD'));
+      return h('tr', { onclick: () => pagoForm(o, p) },
+        h('td', UI.fmtDay(p.fecha)),
+        h('td', h('b', CALC.money(num(p.monto), p.moneda)), p.tipo === 'sena' ? h('div.small.muted', c.fin ? 'Anticipo' : 'Seña') : null),
+        h('td', num(p.tc) ? tcFmt(num(p.tc)) : '—'),
+        h('td', eqUSD ? CALC.money(eqUSD, 'USD') : '—', p.forma === 'cheque' && f.aCobrar ? h('div.small.muted', 'con cheques a cobrar') : null),
+        h('td', dondeTexto(p), (p.cheques || []).map((ch) => h('div.small', chequeTexto(p, ch), ' ', chequeBadge(ch)))),
+        h('td', h('b', f.saldoDespues > 0 ? c.M(f.saldoDespues) : 'Cero')));
+    };
+    return [
+      h('div.cabecera', h('h3', 'Detalle de saldo'),
+        h('button.btn.small', { type: 'button', onclick: () => detalleSaldoPDF(o) }, icon('file'), 'Detalle de saldo PDF'),
+        c.total && c.pendiente > 0 ? h('button.btn.small.primary', { type: 'button', onclick: () => registrarPago(o) }, icon('money'), 'Registrar pago') : null),
+      c.filas.length ? h('div.table-wrap', h('table.tabla.tabla-saldo',
+        h('thead', h('tr', ['Fecha', 'Qué pagó', 'TC del día', 'Equivalente US$', 'Dónde y cómo', 'Saldo después'].map((t) => h('th', t)))),
+        h('tbody', c.filas.map(fila))))
+        : h('div.card.empty.small', 'Todavía no hay pagos registrados.'),
+      c.senaSinRegistrar && c.pendiente > 0 ? h('div', { style: { marginTop: '10px' } }, pasoBox(`${c.fin ? 'Anticipo' : 'Seña'} pactad${c.fin ? 'o' : 'a'} ${c.M(c.sena)}: ${c.senaCobrada ? `cobrado ${c.M(c.senaCobrada)}, falta ${c.M(c.senaFalta)}` : 'falta registrarlo como pago'}.`,
+        h('button.btn.small.primary', { type: 'button', onclick: () => pagoForm(o, null, { tipo: 'sena', monto: Math.min(c.senaFalta, c.pendiente) }) }, `Registrar ${c.fin ? 'anticipo' : 'seña'}`))) : null,
+    ];
+  }
+
+  // Carpeta de comprobantes: todos los de la obra, para ver y descargar (uno o todos juntos en .zip).
+  function comprobantesDeObra(o) {
+    const out = [];
+    for (const p of pagosPorObra[o._id] || []) for (const m of p.comprobantes || []) out.push({ ...m, pago: p });
+    return out;
+  }
+  function comprobantesBlock(o) {
+    const lista = comprobantesDeObra(o);
+    return [
+      h('div.cabecera', h('h3', 'Comprobantes'),
+        lista.length > 1 ? h('button.btn.small', { type: 'button', onclick: () => descargarComprobantes(o) }, icon('down'), 'Descargar todos (.zip)') : null),
+      lista.length ? h('div.list', lista.map((m) => h('div.item', { style: { cursor: 'default' } },
+        icon(m.mime === 'application/pdf' ? 'file' : 'eye'),
+        h('div.grow', { style: { minWidth: 0 } }, h('div.ellipsis', m.nombre || 'Comprobante'), h('div.small.muted', [UI.fmtDay(m.pago.fecha), CALC.money(num(m.pago.monto), m.pago.moneda), reciboTexto(m.pago.recibo)].filter(Boolean).join(' · '))),
+        h('button.btn.small.ghost', { type: 'button', onclick: () => verComprobante(o._id, m) }, 'Ver'),
+        h('button.btn.small.ghost', { type: 'button', onclick: () => descargarComprobante(o._id, m) }, 'Descargar'))))
+        : h('div.card.empty.small', 'Todavía no hay comprobantes. Se adjuntan al registrar cada pago.'),
+    ];
+  }
+  const nombreArchivo = (t) => String(t || 'archivo').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w .()-]/g, '').trim().slice(0, 80) || 'archivo';
+  function bajarBlob(blob, nombre) {
+    const url = URL.createObjectURL(blob);
+    const a = h('a', { href: url, download: nombre, style: { display: 'none' } });
+    document.body.append(a);
+    a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 2000);
+  }
+  const b64Blob = (b64, mime) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: mime || 'application/octet-stream' });
+  };
+  function descargarComprobante(obraId, m) {
+    const f = (comprobantesPorObra[obraId] || []).find((x) => x._id === m.id);
+    if (!f) return UI.toast('Bajando el comprobante, probá de nuevo en un momento…');
+    bajarBlob(b64Blob(f.data, f.mime), nombreArchivo(f.nombre));
+  }
+  let jszipCarga = null;
+  function cargarJSZip() {
+    if (window.JSZip) return Promise.resolve(window.JSZip);
+    if (!jszipCarga) {
+      jszipCarga = new Promise((resolve, reject) => {
+        const sc = document.createElement('script');
+        sc.src = '../shared/vendor/jszip.min.js';
+        sc.onload = () => (window.JSZip ? resolve(window.JSZip) : reject(new Error('No se pudo cargar el compresor.')));
+        sc.onerror = () => { jszipCarga = null; reject(new Error('No se pudo cargar el compresor.')); };
+        document.head.append(sc);
+      });
+    }
+    return jszipCarga;
+  }
+  async function descargarComprobantes(o) {
+    const lista = comprobantesDeObra(o);
+    const datos = comprobantesPorObra[o._id] || [];
+    if (lista.some((m) => !datos.some((x) => x._id === m.id))) return UI.toast('Bajando los comprobantes, probá de nuevo en un momento…');
+    let Zip;
+    try { Zip = await cargarJSZip(); } catch (e) { return UI.toast(e.message, 5000); }
+    const zip = new Zip();
+    const usados = new Set();
+    for (const m of lista) {
+      const f = datos.find((x) => x._id === m.id);
+      const ext = f.mime === 'application/pdf' ? '.pdf' : '.jpg';
+      let nombre = nombreArchivo(`${m.pago.fecha} ${reciboTexto(m.pago.recibo).replace('N° ', 'Recibo ')} ${(f.nombre || '').replace(/\.[^.]+$/, '')}`) + ext;
+      for (let i = 2; usados.has(nombre); i++) nombre = nombre.replace(/( \(\d+\))?(\.\w+)$/, ` (${i})$2`);
+      usados.add(nombre);
+      zip.file(nombre, f.data, { base64: true });
+    }
+    const blob = await zip.generateAsync({ type: 'blob' });
+    bajarBlob(blob, nombreArchivo(`Comprobantes - ${o.cliente || o.nombre}${o.pedido ? ' - Pedido ' + o.pedido : ''}`) + '.zip');
+  }
+
+  // Detalle de saldo en PDF, para mandar al cliente.
+  async function detalleSaldoPDF(o) {
+    let lib;
+    try { lib = await cargarJsPDF(); } catch (e) { return UI.toast(e.message, 5000); }
+    const c = cobro(o);
+    const v = c.v;
+    const pm = pagadoPorMoneda(c);
+    const doc = new lib.jsPDF({ unit: 'mm', format: 'a4' });
+    const M = 16;
+    const W = 210 - 2 * M;
+    let y = M;
+    const nueva = () => { doc.addPage(); y = M; };
+    const espacio = (n) => { if (y + n > 297 - M) nueva(); };
+    try {
+      const logo = await imagenDataURL('../shared/icons/logo.png');
+      doc.addImage(logo.url, 'PNG', M, y, 48, (48 * logo.h) / logo.w);
+    } catch (e) { doc.setFont('helvetica', 'bold').setFontSize(18).text('SLAVON', M, y + 7); }
+    doc.setFont('helvetica', 'bold').setFontSize(17).text('DETALLE DE SALDO', 210 - M, y + 6, { align: 'right' });
+    doc.setFont('helvetica', 'normal').setFontSize(10).text(pdfTxt(UI.fmtDay(UI.today())), 210 - M, y + 12, { align: 'right' });
+    y += 22;
+    doc.setDrawColor(200).line(M, y, 210 - M, y);
+    y += 8;
+    const fila = (k, val, bold) => {
+      if (!val) return;
+      espacio(7);
+      doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(90).text(pdfTxt(k), M, y);
+      doc.setFont('helvetica', bold ? 'bold' : 'normal').setFontSize(11).setTextColor(0).text(pdfTxt(val), M + 55, y);
+      y += 6.5;
+    };
+    fila('Cliente', clientePed(o) || o.nombre);
+    fila('Obra', o.nombre);
+    fila('Forma de pago', c.fin ? `Financiado · ${c.plan.cantidad} cuotas de ${c.M(c.plan.cuota)}` : 'Contado');
+    fila('Presupuesto', c.M(c.precio), true);
+    if (c.fin) fila('Total a cobrar', c.M(c.total), true);
+    fila('IVA', !v.iva || v.iva.tipo === 'sin' ? 'Sin factura' : `${v.iva.tipo === 'total' ? 'IVA total' : 'IVA mínimo'} ${c.M(num(v.iva.monto))} (incluido)`);
+    for (const t of v.tributos || []) fila(t.nombre, `${c.M(num(t.monto))} (incluido)`);
+    fila('Total pagado', `${c.M(c.cobrado)}${pm.USD && pm.ARS ? ` (US$ ${fmtNum(pm.USD)} + $ ${fmtNum(pm.ARS)})` : ''}`, true);
+    fila('Saldo pendiente', c.pendiente > 0 ? c.M(c.pendiente) : 'Cero', true);
+    y += 4;
+    // Tabla de pagos
+    const cols = [['Fecha', 20], ['Qué pagó', 34], ['TC', 22], ['Equiv. US$', 26], ['Dónde y cómo', 46], ['Saldo después', 30]];
+    const encabezado = () => {
+      espacio(10);
+      doc.setFillColor(244, 245, 246).rect(M, y - 4.5, W, 7, 'F');
+      let x = M + 1;
+      doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(60);
+      for (const [t, w] of cols) { doc.text(pdfTxt(t), x, y); x += w; }
+      y += 6;
+    };
+    doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(0).text('Pagos', M, y);
+    y += 7;
+    if (!c.filas.length) { doc.setFont('helvetica', 'normal').setFontSize(10).text('Todavía no hay pagos registrados.', M, y); y += 7; } else {
+      encabezado();
+      for (const f of c.filas) {
+        const p = f.p;
+        const eq = CALC.valorPago(p, 'USD');
+        const celdas = [UI.fmtDay(p.fecha), CALC.money(num(p.monto), p.moneda) + (p.tipo === 'sena' ? (c.fin ? ' (anticipo)' : ' (seña)') : ''), num(p.tc) ? tcFmt(num(p.tc)) : '-',
+          eq ? CALC.money(eq, 'USD') : '-', dondeTexto(p) + (p.cheques || []).map((ch) => `\n${chequeTexto(p, ch)} (${ch.estado || 'pendiente'})`).join(''), f.saldoDespues > 0 ? c.M(f.saldoDespues) : 'Cero'];
+        const partes = celdas.map((t, i) => doc.splitTextToSize(pdfTxt(t), cols[i][1] - 2));
+        const alto = Math.max(...partes.map((x) => x.length)) * 4.2 + 2;
+        if (y + alto > 297 - M) { nueva(); encabezado(); }
+        let x = M + 1;
+        doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(0);
+        partes.forEach((t, i) => { doc.text(t, x, y); x += cols[i][1]; });
+        y += alto;
+        doc.setDrawColor(230).line(M, y - 3, 210 - M, y - 3);
+      }
+    }
+    // Cuotas
+    if (c.fin && c.cuotas.length) {
+      y += 4;
+      espacio(14);
+      doc.setFont('helvetica', 'bold').setFontSize(12).text('Cuotas', M, y);
+      y += 7;
+      doc.setFont('helvetica', 'normal').setFontSize(9.5);
+      for (const q of c.cuotas) {
+        espacio(6);
+        const est = q.pendiente <= 0 ? 'Pagada' : q.pagado ? `Falta ${c.M(q.pendiente)}` : q.fecha && UI.daysUntil(q.fecha) < 0 ? 'Vencida' : 'Pendiente';
+        doc.text(pdfTxt(`${q.n}.  ${q.fecha ? UI.fmtDay(q.fecha) : '-'}`), M, y);
+        doc.text(pdfTxt(c.M(q.monto)), M + 40, y);
+        doc.text(pdfTxt(est), M + 80, y);
+        y += 5.5;
+      }
+    }
+    doc.setFontSize(8.5).setTextColor(120).text(pdfTxt('SLAVON · Detalle de saldo generado por el sistema de gestión.'), M, 297 - 10);
+    doc.save(`${nombreArchivo(`Detalle de saldo - ${o.cliente || o.nombre}${o.pedido ? ' - Pedido ' + o.pedido : ''}`)}.pdf`);
+  }
+
+  // Checklist administrativo de la obra, con la lógica de la factura.
+  function checklistAdminBlock(o) {
+    const k = checklistAdmin(o);
+    const v = ventas[o._id] || {};
+    const guardar = (cambios) => cloud.patch('ventas', o._id, { checklistAdmin: { ...(v.checklistAdmin || {}), ...cambios }, ...stamp() });
+    const marca = (ok) => (ok ? { ok: true, fecha: UI.today(), por: me.email, porNombre: me.nombre } : { ok: false, fecha: '', por: '', porNombre: '' });
+    const quien = (t) => (t && t.ok ? h('div.small.muted', `${t.porNombre || ''} · ${UI.fmtDay(t.fecha)}`) : null);
+    const siNo = (valor, onchange, sugerido) => h('select.sino', { onchange: (e) => onchange(e.target.value) },
+      [['', '—'], ['si', 'Sí'], ['no', 'No']].map(([val, txt]) => h('option', { value: val, selected: val === (valor || '') }, txt)), sugerido ? null : null);
+    const filas = k.pasos.map((it) => {
+      if (it.tipo === 'tilde') {
+        const t = k.tildes[it.id] || {};
+        return h('label.item.check-item',
+          h('input', { type: 'checkbox', checked: !!t.ok, onchange: (e) => guardar({ tildes: { ...k.tildes, [it.id]: marca(e.target.checked) } }) }),
+          h('div.grow', h('div', it.texto), quien(t)));
+      }
+      if (it.tipo === 'mail') {
+        return h('div.item.check-item', { style: { cursor: 'default' } }, h('span.dot', { class: it.hecho ? 'done' : '' }, it.hecho ? icon('check') : '?'),
+          h('div.grow', it.texto), siNo(k.ch.confirmoMail, (x) => guardar({ confirmoMail: x })));
+      }
+      if (it.tipo === 'percepciones') {
+        return h('div.item.check-item', { style: { cursor: 'default' } }, h('span.dot', { class: it.hecho ? 'done' : '' }, it.hecho ? icon('check') : '?'),
+          h('div.grow', h('div', it.texto), !k.ch.percepciones && k.percepciones ? h('div.small.muted', 'Según los tributos de la venta') : null),
+          siNo(k.percepciones, (x) => guardar({ percepciones: x })));
+      }
+      // Factura: ¿tiene? Sí → razón social y CUIT · No → ¿a dónde transfirió? → W. MAX o Atlantis: pedir la factura · otro: pedir la razón social
+      const fac = k.fac;
+      const gFac = (cambios) => guardar({ factura: { ...fac, ...cambios } });
+      const sub = [];
+      if (fac.tiene === 'si') {
+        const rs = h('input', { type: 'text', placeholder: 'Razón social', value: fac.razonSocial || '', 'aria-label': 'Razón social' });
+        const cuit = h('input', { type: 'text', placeholder: 'CUIT', inputMode: 'numeric', value: fac.cuit || '', 'aria-label': 'CUIT' });
+        const guardarDatos = () => {
+          if (!rs.value.trim() || !cuit.value.trim()) return UI.toast('Poné la razón social y el CUIT.');
+          gFac({ razonSocial: rs.value.trim(), cuit: cuit.value.trim() });
+          UI.toast('Razón social y CUIT guardados');
+          // Al cliente del catálogo, si no los tenía.
+          const cl = cat.clientes.find((x) => x._id === o.clienteId);
+          if (cl && ((!cl.cuit && cuit.value.trim()) || (!cl.razonSocial && rs.value.trim()))) {
+            cloud.patch('clientes', cl._id, { cuit: cl.cuit || cuit.value.trim(), razonSocial: cl.razonSocial || rs.value.trim(), ...stamp() });
+          }
+        };
+        // Se guardan con el botón (si se guardara al salir de cada campo, la pantalla se refresca mientras se escribe).
+        const listo = fac.razonSocial && fac.cuit && rs.value.trim() === fac.razonSocial && cuit.value.trim() === fac.cuit;
+        sub.push(h('div.factura-datos', rs, cuit, h('button.btn.small', { type: 'button', class: listo ? '' : 'primary', onclick: guardarDatos }, listo ? 'Guardado' : 'Guardar')));
+      }
+      if (fac.tiene === 'no') {
+        sub.push(h('div.factura-datos', h('span.small', '¿Transfirió a…?'),
+          h('select', { onchange: (e) => gFac({ transfirioA: e.target.value }) }, [['', '—'], ...EMISORES].map(([val, txt]) => h('option', { value: val, selected: val === (k.transfirio || '') }, txt))),
+          !fac.transfirioA && k.sugTransfirio ? h('span.small.muted', 'según los pagos') : null));
+        if (k.transfirio === 'wmax' || k.transfirio === 'atlantis') {
+          sub.push(h('label.check.sub', h('input', { type: 'checkbox', checked: !!(fac.pedirFactura && fac.pedirFactura.ok), onchange: (e) => gFac({ pedirFactura: marca(e.target.checked) }) }), `Pedir la factura a ${k.transfirio === 'wmax' ? 'W. MAX' : 'Atlantis'}`, quien(fac.pedirFactura)));
+        }
+        if (k.transfirio === 'otro') {
+          sub.push(h('label.check.sub', h('input', { type: 'checkbox', checked: !!(fac.pedirRazonSocial && fac.pedirRazonSocial.ok), onchange: (e) => gFac({ pedirRazonSocial: marca(e.target.checked) }) }), 'Pedir la razón social igual', quien(fac.pedirRazonSocial)));
+        }
+      }
+      return h('div.item.check-item.factura', { style: { cursor: 'default', display: 'block' } },
+        h('div.row', h('span.dot', { class: it.hecho ? 'done' : '' }, it.hecho ? icon('check') : '?'), h('div.grow', it.texto), siNo(fac.tiene, (x) => gFac({ tiene: x }))),
+        sub.length ? h('div', { style: { marginTop: '8px' } }, sub) : null);
+    });
+    return [
+      h('div.row', { style: { margin: '18px 0 8px' } }, h('h3.grow', { style: { margin: 0 } }, 'Checklist administrativo'),
+        h('span.badge', { class: k.hechos === k.total ? 'ok' : '' }, `${k.hechos} de ${k.total}`), k.aviso ? h('span.badge.red', { style: { marginLeft: '6px' } }, k.aviso) : null),
+      h('div.list.checklist-admin', filas),
+      h('p.small.muted', 'Las planillas por ahora se tildan a mano (la conexión con Drive es la Fase 5).'),
+    ];
+  }
+
   /* ----- Solapa Entrega ----- */
+
   function entregaTab(o) {
     const term = esTerminada(o);
     const pct = progreso(o);
@@ -1538,7 +2062,7 @@
     const body = h('div',
       h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
       UI.field({ label: 'Fecha en que se recibió el contrato firmado', name: 'fecha', type: 'date', value: UI.today() }),
-      esVendida(o) ? h('label.check', h('input', { type: 'checkbox', name: 'habilitar', checked: true }), 'Pasar a Entregas ahora') : null);
+      h('p.small.muted', 'Después, «Pasar a Entregas» es un botón aparte.'));
     UI.sheet({
       title: 'Contrato firmado',
       body: [body],
@@ -1546,8 +2070,7 @@
         label: 'Guardar', kind: 'primary', onClick: () => {
           const val = UI.values(body);
           cloud.write([{ op: ventas[o._id] ? 'update' : 'set', col: 'ventas', id: o._id, data: { contratoFirmado: true, contratoFecha: val.fecha || UI.today(), contratoPor: me.email, contratoPorNombre: me.nombre, ...stamp() } }]);
-          if (val.habilitar) setTimeout(() => habilitar(o, true), 0);
-          else UI.toast('Guardado');
+          UI.toast('Contrato registrado. Ya se puede pasar a Entregas.');
         },
       }],
     });
@@ -3114,7 +3637,11 @@
     const ivaF = UI.field({ label: 'Factura', name: 'ivaTipo', type: 'select', value: iva0.tipo || 'sin', options: [['sin', 'Sin factura'], ['minimo', 'IVA mínimo'], ['total', 'IVA total']] });
     const ivaMontoF = UI.field({ label: 'Monto del IVA', name: 'ivaMonto', value: num(iva0.monto) ? fmtNum(num(iva0.monto)) : '' });
     numeroInput(ivaMontoF.querySelector('input'));
-    const ivaBox = h('div', ivaMontoF, h('p.small.muted', { style: { marginTop: '-8px' } }, 'Incluido en el precio total (no se suma).'));
+    const fac0 = v.facturacion || {};
+    const aFacturarF = UI.field({ label: 'Monto a facturar (a mano)', name: 'aFacturar', value: num(fac0.aFacturar) ? fmtNum(num(fac0.aFacturar)) : '' });
+    numeroInput(aFacturarF.querySelector('input'));
+    const ivaBox = h('div', ivaMontoF, h('p.small.muted', { style: { marginTop: '-8px' } }, 'Incluido en el precio total (no se suma).'), aFacturarF,
+      h('p.small.muted', { style: { marginTop: '-8px' } }, 'Con esto se calcula el saldo pendiente de facturar en Administración.'));
     const tributos = tributosEditor(v.tributos || []);
 
     body = h('div',
@@ -3278,8 +3805,16 @@
           moneda: val.moneda === 'ARS' ? 'ARS' : 'USD', precio, sena, senaFecha: val.senaFecha, formaPago: val.formaPago,
           cuotas: fin ? Math.round(num(val.cuotas)) : null, tasaMensual: fin ? (val.tasaMensual === '' ? 0 : num(val.tasaMensual)) : null, primeraCuota: fin ? val.primeraCuota : '',
           vendedores, vendio: vendedores.map((x) => x.nombre).join(', '), revendedor, notasVenta: val.notasVenta,
-          iva: { tipo: val.ivaTipo, monto: val.ivaTipo === 'sin' ? 0 : num(val.ivaMonto) }, tributos: tribs, ...stamp(),
+          iva: { tipo: val.ivaTipo, monto: val.ivaTipo === 'sin' ? 0 : num(val.ivaMonto) }, tributos: tribs,
+          facturacion: { ...(v.facturacion || {}), aFacturar: val.ivaTipo === 'sin' ? 0 : val.aFacturar === '' ? '' : num(val.aFacturar) }, ...stamp(),
         };
+        // Si con los cambios el total sube y el saldo deja de ser 0, la marca «Saldo cobrado» deja de valer.
+        let marcaQuitada = false;
+        if (!isNew && v.saldoCobrado) {
+          const vNueva = { ...v, ...venta };
+          const totalNuevo = esFinanciado(vNueva) ? CALC.round2(senaDe(vNueva) + planDe(vNueva).total) : precioDe(vNueva);
+          if (totalNuevo - cobro(o).cobrado > 0.005) { venta.saldoCobrado = null; marcaQuitada = true; }
+        }
         // Planos: se suben antes de guardar (hace falta conexión); en la obra queda el link, el nombre y la fecha.
         const id = isNew ? cloud.newId() : o._id;
         let pl;
@@ -3314,7 +3849,7 @@
             { op: ventas[o._id] ? 'update' : 'set', col: 'ventas', id: o._id, data: venta },
             ...opsCliente,
           ]);
-          UI.toast(obra.estado === 'vendida' ? 'Venta completa: pasó a Administración' : 'Guardado');
+          UI.toast(marcaQuitada ? 'Guardado. El saldo dejó de ser 0: se quitó la marca «Saldo cobrado».' : obra.estado === 'vendida' ? 'Venta completa: pasó a Administración' : 'Guardado', marcaQuitada ? 5000 : 2600);
         }
         for (const path of pl.borrar) cloud.removeFile(path).catch(() => {});
         if (sinPlano) setTimeout(() => UI.toast(`Falta el plano (obligatorio en ${porQuePlano(obra)}): no va a poder pasar a Entregas hasta adjuntarlo.`, 6000), isNew ? 3200 : 2800);
@@ -3395,7 +3930,7 @@
   }
 
   function seedDemo() {
-    cloud.seedOnce('v8', (put) => {
+    cloud.seedOnce('v9', (put) => {
       const t = UI.today();
       const d = (n) => UI.addDays(t, n);
       const DEL = 'administrativo@demo.slavon';
@@ -3501,7 +4036,12 @@
         const garantia = k.sinGarantia ? { garantiaAnios: 0, garantiaMeses: 0 } : {};
         put('obras', id, { ...base, ...o, ...cancha, ...garantia, conStock: !!ex.conStock, planos: ex.planos || [], materialesEntrega: ex.materiales || null, clienteId: clientes[key] || '', pedido: ex.pedido || '' });
         const vend = (ex.vendedores || ['melina']).map((k) => ({ id: 'vd_' + k, nombre: VEND[k] }));
-        put('ventas', id, { moneda: 'USD', vendedores: vend, vendio: vend.map((x) => x.nombre).join(', '), revendedor: ex.revendedor || null, iva: ex.iva || { tipo: 'sin', monto: 0 }, tributos: ex.tributos || [], ...v });
+        // Las de contado que ya pasaron a Entregas tienen la marca «Saldo cobrado».
+        const marca = v.formaPago === 'contado' && ['en_curso', 'terminada'].includes(o.estado) ? { fecha: o.habilitadaFecha || o.fechaEntrega || t, por: DEL, porNombre: 'Delfina (demo)' } : null;
+        const tilde = (dias = -1) => ({ ok: true, fecha: d(dias), por: DEL, porNombre: 'Delfina (demo)' });
+        const checklistAdmin = ex.checklist ? { tildes: Object.fromEntries((ex.checklist.tildes || []).map((k) => [k, tilde()])), confirmoMail: ex.checklist.mail || '', percepciones: ex.checklist.percepciones || '', factura: ex.checklist.factura || {} } : null;
+        put('ventas', id, { moneda: 'USD', vendedores: vend, vendio: vend.map((x) => x.nombre).join(', '), revendedor: ex.revendedor || null, iva: ex.iva || { tipo: 'sin', monto: 0 }, tributos: ex.tributos || [],
+          saldoCobrado: marca, checklistAdmin, facturacion: ex.facturacion || null, ...v });
         if (num(v.sena) > 0 && !ex.sinSenaPago) pago(id, v.senaFecha || o.fechaVenta, 'USD', num(v.sena), 1570, ex.senaForma || 'cuenta', ex.senaDestino || 'wmax', '', { tipo: 'sena' });
       };
       const foto = (obraId, etapaId, texto, padel, dias = 0, quien = 'Beto (demo)') => put('fotos', obraId + '_' + etapaId + '_' + texto.length, {
@@ -3525,7 +4065,8 @@
       obra('v1', { nombre: 'Club Los Robles – Pádel 1 y 2', ...cancha('padel_cesped', 10, 20, 0, 'simple', 2), ...cesp('Fibrilado 12 mm', 'verde'), conArena: true, conCaucho: false,
         ...cli('Club Los Robles', 'Martín Robles', ['tel', '11 5555 0101', 'Martín, dueño'], ['tel', '11 5555 0111', 'Pepe, encargado'], ['mail', 'martin@losrobles.demo', 'Martín, dueño']),
         ubicacion: 'Tigre, Buenos Aires', fechaVenta: d(-2), plazo: 'inmediata', fechaEntrega: d(3), estado: 'vendida', etapas: etapas('padel_cesped', 0), checklist: check('padel_cesped') },
-      { precio: 9600, sena: 4800, senaFecha: d(-2), formaPago: 'contado' }, { pedido: '1041', conStock: true, iva: { tipo: 'minimo', monto: 1000 } });
+      { precio: 9600, sena: 4800, senaFecha: d(-2), formaPago: 'contado' }, { pedido: '1041', conStock: true, iva: { tipo: 'minimo', monto: 1000 }, facturacion: { aFacturar: 4800, facturas: [] },
+        checklist: { tildes: ['rosaPlanilla', 'rojoCarpeta', 'agendado', 'planillaCompra'], mail: 'si', factura: { tiene: 'no' } } });
       pago('v1', d(-1), 'ARS', 3140000, 1570, 'cuenta', 'wmax', 'Pagó una parte, el resto la semana que viene', { comprobante: 'Comprobante transferencia', registrado: false, factura: 'solicitar' });
       obra('v2', { nombre: 'Escuela San Martín – F7', ...cancha('futbol', 30, 40, 60), ...cesp('Monofilamento 50 mm', 'verde'),
         ...cli('Escuela San Martín', 'Lic. Paz', ['tel', '11 5555 0102', 'Lic. Paz, directora'], ['mail', 'administracion@sanmartin.demo', 'Administración']),
@@ -3547,7 +4088,9 @@
         logistica: window.OBRAS_LOGISTICA.map((texto, i) => ({ id: 'l' + i, texto, ok: false })), fechaVenta: d(-4), plazo: 'fabricacion', fechaEntrega: d(24), estado: 'vendida', etapas: etapas('padel_completa', 0), checklist: check('padel_completa') },
       { precio: 81000, sena: 40500, senaFecha: d(-4), formaPago: 'contado' },
       { pedido: '1040', revendedor: { id: 'rv_rosario', nombre: 'Canchas Rosario', comisionMonto: 4000, comisionMoneda: 'USD' }, senaForma: 'proveedor', senaDestino: 'polimetal',
-        iva: { tipo: 'total', monto: 14058 }, tributos: [{ id: 'tr1', nombre: 'Percepción IIBB', monto: 1215 }] });
+        iva: { tipo: 'total', monto: 14058 }, tributos: [{ id: 'tr1', nombre: 'Percepción IIBB', monto: 1215 }],
+        facturacion: { aFacturar: 81000, facturas: [{ id: 'fa1', fecha: d(-3), numero: '0003-00000412', emisor: 'wmax', emisorOtro: '', monto: 40500, pagoId: '', porNombre: 'Delfina (demo)' }] },
+        checklist: { tildes: ['rosaPlanilla', 'rojoCarpeta', 'planillaCompra', 'detalleCompra'], factura: { tiene: 'no' } } });
       pago('v5', d(-2), 'ARS', 1570000, 1570, 'cheque', 'cartera', 'Lo rechazó el banco: avisar al cliente', {
         cheques: [{ id: 'ch1', numero: '00412233', aNombreDe: 'Padel Point SRL', banco: 'Banco Macro', fechaCobro: d(-1), monto: 1570000, estado: 'rechazado', cobradoFecha: '', cobradoTC: 0 }] });
       obra('v6', { nombre: 'Sr. Gómez – césped sin instalación', ...cancha('futbol', 15, 20), ...cesp('Monofilamento 40 mm', 'verde'), conInstalacion: false,
@@ -3560,7 +4103,9 @@
       obra('e1', { nombre: 'Club Huracán – Cancha 1', ...cancha('futbol', 30, 60), ...cesp('Monofilamento 50 mm', 'verde'), ...cli('C. A. Huracán', 'Intendencia', ['tel', '11 5555 0201', 'Intendencia']),
         ubicacion: 'Parque Patricios, CABA', fechaVenta: d(-40), plazo: 'fabricacion', fechaEntrega: d(-12), estado: 'en_curso', habilitadaFecha: d(-14), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(-10), instFin: d(2), equipo: 'Equipo AMBA 1', responsable: CAR, flete: 'Transporte del Sur · llegó el ' + UI.fmtDay(d(-11)), etapas: etapas('futbol', 5, true, {}, -10), checklist: check('futbol') },
       { precio: 38000, sena: 19000, senaFecha: d(-40), formaPago: 'contado' },
-      { formato: 'F9', blancoManual: 120, planos: [planoDemo('e1', 'Plano F9 · 30 × 60 m', 'Plano Huracán F9.jpg')], materiales: { pegamento: { cantidad: 8, unidad: 'baldes', porNombre: 'Carajo (demo)' }, cinta: { cantidad: 120, unidad: 'm', porNombre: 'Carajo (demo)' } } });
+      { iva: { tipo: 'total', monto: 6595 }, facturacion: { aFacturar: 38000, facturas: [{ id: 'fa2', fecha: d(-38), numero: '0003-00000377', emisor: 'atlantis', emisorOtro: '', monto: 19000, pagoId: '', porNombre: 'Delfina (demo)' }] },
+        checklist: { tildes: ['rosaPlanilla', 'rojoCarpeta', 'agendado', 'planillaCompra', 'detalleCompra', 'detalleSaldo', 'manual', 'garantia', 'ingresarPedido', 'derivarPago', 'calendario'], mail: 'si', percepciones: 'no', factura: { tiene: 'si', razonSocial: 'Club Atlético Huracán', cuit: '30-52654321-8' } },
+        formato: 'F9', blancoManual: 120, planos: [planoDemo('e1', 'Plano F9 · 30 × 60 m', 'Plano Huracán F9.jpg')], materiales: { pegamento: { cantidad: 8, unidad: 'baldes', porNombre: 'Carajo (demo)' }, cinta: { cantidad: 120, unidad: 'm', porNombre: 'Carajo (demo)' } } });
       pago('e1', d(-14), 'USD', 19000, 1545, 'efectivo_usd', 'caja_usd');
       obra('e2', { nombre: 'La Finca – Pádel 2 y 3', ...cancha('padel_completa', 10, 20, 0, 'simple', 2), ...cesp('Textil pádel', 'azul'), ...cli('La Finca Country', 'Administración', ['tel', '11 5555 0202', 'Administración']),
         ubicacion: 'Pilar, Buenos Aires', fechaVenta: d(-50), plazo: 'fabricacion', fechaEntrega: d(-6), estado: 'en_curso', habilitadaFecha: d(-8), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(-5), instFin: d(4), equipo: 'Equipo AMBA 2', responsable: BETO, etapas: etapas('padel_completa', 5, true, {}, -5), checklist: check('padel_completa') },

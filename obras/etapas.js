@@ -155,3 +155,27 @@ window.OBRAS_FORMAS_PAGO = [
   ['efectivo_usd', 'Efectivo dólares'],
   ['cheque', 'Cheque'],
 ];
+
+// Checklist administrativo de cada obra (Administración), en el orden de docs/CHECKLIST.md.
+// tipo: 'tilde' (hecho / no) · 'mail' y 'percepciones' (Sí / No) · 'factura' (con su lógica).
+// cuando: 'saldo' = sólo si queda saldo · 'transferencia' = sólo si pagó por transferencia o depósito.
+// Las planillas («rosa en la planilla», «Caucho», «Pádel pedidos», «Clientes cerrados») por ahora son tildes a mano.
+window.OBRAS_CHECKLIST_ADMIN = [
+  { id: 'rosaPlanilla', tipo: 'tilde', texto: 'Poner rosa en la planilla' },
+  { id: 'rojoCarpeta', tipo: 'tilde', texto: 'Poner rojo en la carpeta' },
+  { id: 'agendado', tipo: 'tilde', texto: 'Verificar que esté agendado (o agendarlo)' },
+  { id: 'planillaCompra', tipo: 'tilde', texto: 'Enviar planilla de compra, plano y condiciones' },
+  { id: 'detalleCompra', tipo: 'tilde', texto: 'Completar detalle de compra' },
+  { id: 'detalleSaldo', tipo: 'tilde', texto: 'Completar detalle de saldo' },
+  { id: 'enviarDetalleSaldo', tipo: 'tilde', texto: 'Enviar detalle de saldo al cliente', cuando: 'saldo' },
+  { id: 'manual', tipo: 'tilde', texto: 'Enviar manual de mantenimiento' },
+  { id: 'garantia', tipo: 'tilde', texto: 'Enviar garantía' },
+  { id: 'confirmoMail', tipo: 'mail', texto: '¿El cliente confirmó el mail?' },
+  { id: 'ingresarPedido', tipo: 'tilde', texto: 'Ingresar su pedido' },
+  { id: 'derivarPago', tipo: 'tilde', texto: 'Derivar el pago', cuando: 'transferencia' },
+  { id: 'factura', tipo: 'factura', texto: '¿Tiene factura?' },
+  { id: 'percepciones', tipo: 'percepciones', texto: '¿Pagó percepciones?' },
+  { id: 'calendario', tipo: 'tilde', texto: 'Agregar al calendario' },
+  { id: 'planillaCauchoPadel', tipo: 'tilde', texto: 'Agregar a la planilla «Caucho» o «Pádel pedidos»' },
+  { id: 'clientesCerrados', tipo: 'tilde', texto: 'Agregar a la planilla «Clientes cerrados»' },
+];

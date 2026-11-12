@@ -1,6 +1,6 @@
 # Checklist de cambios: App Obras Slavon
 
-Actualizado: 11/11/2026 · Fase 1 hecha (secciones 0, 1 «Vendedor» y «Datos del cliente», y 2) · Fase 2 hecha (sección 1 completa y catálogo de césped).
+Actualizado: 11/11/2026 · Fase 1 hecha (secciones 0, 1 «Vendedor» y «Datos del cliente», y 2) · Fase 2 hecha (sección 1 completa y catálogo de césped) · Fase 3 hecha (sección 3, Administración).
 Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado con ❓ necesita datos de Juan antes de programarlo.
 
 ---
@@ -162,49 +162,50 @@ Cada pago guarda:
 ## 3. ADMINISTRACIÓN
 
 ### Edición
-- [ ] Hoy se ve una ficha con pocos datos y no se puede editar. **Poder editar toda la venta** desde Administración; cualquier cambio en la venta se refleja directo acá (es el mismo registro, no una copia).
+- [x] Hoy se ve una ficha con pocos datos y no se puede editar. **Poder editar toda la venta** desde Administración; cualquier cambio en la venta se refleja directo acá (es el mismo registro, no una copia).
 
 ### Estado de saldo (ficha de la obra)
-- [ ] **Presupuesto** total.
-- [ ] Cuánto es **IVA mínimo / IVA total**.
-- [ ] **Total pagado**, en US$ y en $.
-- [ ] **Saldo pendiente** total.
-- [ ] **Saldo pendiente de facturar**.
-- [ ] Si es financiado: tabla de **cuotas** con estado (pagada / vencida / próxima).
+- [x] **Presupuesto** total.
+- [x] Cuánto es **IVA mínimo / IVA total**.
+- [x] **Total pagado**, en US$ y en $.
+- [x] **Saldo pendiente** total.
+- [x] **Saldo pendiente de facturar**. _= monto a facturar (por ahora se carga a mano) − facturas cargadas. Sin factura = 0._
+- [x] Si es financiado: tabla de **cuotas** con estado (pagada / vencida / próxima).
 
 ### Detalle de saldo
-- [ ] Tabla con cada pago: **fecha**, **qué pagó** ($ o US$), **TC del día**, **equivalente en US$**, **dónde y cómo** pagó, **saldo después del pago**.
-- [ ] **Carpeta de comprobantes**: ver y descargar todos los comprobantes de la obra.
-- [ ] Botón **"Detalle de saldo PDF"** para imprimir o mandar al cliente.
+- [x] Tabla con cada pago: **fecha**, **qué pagó** ($ o US$), **TC del día**, **equivalente en US$**, **dónde y cómo** pagó, **saldo después del pago**.
+- [x] **Carpeta de comprobantes**: ver y descargar todos los comprobantes de la obra. _Uno por uno o todos juntos en .zip._
+- [x] Botón **"Detalle de saldo PDF"** para imprimir o mandar al cliente.
 
 ### Botones de cierre (separados)
-- [ ] **"Saldo cobrado"**: solo se habilita cuando el saldo calculado es **0**.
-- [ ] **"Pasar a Entregas"**: botón aparte, porque a veces está cobrado pero no se pasa por otro motivo. (Financiado: se habilita con contrato firmado, como ahora.)
+- [x] **"Saldo cobrado"**: solo se habilita cuando el saldo calculado es **0**. _Deja quién y cuándo. Si el saldo vuelve a subir (cheque rechazado, pago borrado, precio mayor), avisa y se borra la marca._
+- [x] **"Pasar a Entregas"**: botón aparte, porque a veces está cobrado pero no se pasa por otro motivo. (Financiado: se habilita con contrato firmado, como ahora.) _Contado: pide la marca «Saldo cobrado». Ya no hay pase automático al registrar un pago o el contrato._
 
 ### Que no desaparezca
-- [ ] **Error actual**: cuando la obra termina de pagar y pasa a Entregas, **desaparece de Administración**. Tiene que quedar visible (por ejemplo, en una pestaña **"Cobradas / en entrega"** o con un filtro por estado).
+- [x] **Error actual**: cuando la obra termina de pagar y pasa a Entregas, **desaparece de Administración**. Tiene que quedar visible (por ejemplo, en una pestaña **"Cobradas / en entrega"** o con un filtro por estado). _Hecho: pestañas «Por cobrar», «Cobradas / en entrega», «Entregadas» y «Todas»._
 
 ### Checklist administrativo por obra
-- [ ] Poner **rosa en la planilla** y **rojo en la carpeta**.
-- [ ] Verificar que esté **agendado** / agendarlo.
-- [ ] Enviar **planilla de compra, plano y condiciones**.
-- [ ] Completar **detalle de compra**.
-- [ ] Completar **detalle de saldo**.
-- [ ] Si queda saldo pendiente, **enviar detalle de saldo** al cliente.
-- [ ] Enviar **manual de mantenimiento**.
-- [ ] Enviar **garantía**.
-- [ ] ¿El cliente **confirmó el mail**? Sí / No.
-- [ ] **Ingresar su pedido**.
-- [ ] Si pagó por transferencia o depósito, **derivar el pago**.
-- [ ] ¿Tiene **factura**? Sí / No:
+- [x] Poner **rosa en la planilla** y **rojo en la carpeta**.
+- [x] Verificar que esté **agendado** / agendarlo.
+- [x] Enviar **planilla de compra, plano y condiciones**.
+- [x] Completar **detalle de compra**.
+- [x] Completar **detalle de saldo**.
+- [x] Si queda saldo pendiente, **enviar detalle de saldo** al cliente.
+- [x] Enviar **manual de mantenimiento**.
+- [x] Enviar **garantía**.
+- [x] ¿El cliente **confirmó el mail**? Sí / No.
+- [x] **Ingresar su pedido**.
+- [x] Si pagó por transferencia o depósito, **derivar el pago**.
+- [x] ¿Tiene **factura**? Sí / No:
   - Si **Sí** → campo **razón social** (y CUIT).
   - Si **No** → ¿transfirió a **W. MAX**, **Atlantis** u **otro**?
     - W. MAX o Atlantis → **pedir la factura**.
     - Otro → igual **pedir razón social**.
-- [ ] ¿Pagó **percepciones**? Sí / No.
-- [ ] **Agregar al calendario**.
-- [ ] Agregar a planilla **"Caucho" o "Pádel pedidos"**.
-- [ ] Agregar a planilla **"Clientes cerrados"**.
+- [x] ¿Pagó **percepciones**? Sí / No.
+- [x] **Agregar al calendario**.
+- [x] Agregar a planilla **"Caucho" o "Pádel pedidos"**.
+- [x] Agregar a planilla **"Clientes cerrados"**.
+- _Los ítems de planillas por ahora son tildes a mano; la conexión con Drive es la Fase 5. La razón social y el CUIT también se guardan en el cliente del catálogo._
 
 ---
 
@@ -231,7 +232,7 @@ Cada pago guarda:
 - [ ] **Recibo con el formato de Slavon** (Juan pasa el modelo).
 - [ ] **Fórmula del bicolor** (por ahora, m² extra a mano).
 - [ ] **Cálculo automático de pegamento y cinta de unión** (por ahora la cantidad la carga Federico en Entregas).
-- [ ] **Desglose automático del IVA** (por ahora, monto a mano).
+- [ ] **Desglose de IVA y monto a facturar** automáticos (por ahora, los dos se cargan a mano).
 - [ ] **Blanco de F8, F9 y F11** (por ahora, «Pedir blanco a Tomás»).
 
 ---
