@@ -212,3 +212,18 @@ body.wide main { max-width: 1320px; }
 
 .envio { display: flex; align-items: center; gap: 6px; margin: 0; }
 .envio select { border: 1px solid var(--field-line); background: var(--field); border-radius: 8px; padding: 6px 8px; font-size: 14px; }
+
+/* ---------- Fase 3: Administración ---------- */
+.cierre { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cierre > .btn { flex: 1 1 160px; justify-content: center; }
+.cierre-ok { flex: 1 1 220px; display: flex; align-items: center; gap: 10px; background: var(--ok-soft); border-radius: 12px; padding: 8px 12px; }
+.cierre-ok > .i { color: var(--ok); }
+.tabla.tabla-saldo { min-width: 680px; }
+.tabla.tabla-saldo td { vertical-align: top; }
+select.sino { border: 1px solid var(--field-line); background: var(--field); border-radius: 8px; padding: 6px 8px; font-size: 14px; flex: none; }
+.factura-datos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 6px 34px; }
+.factura-datos input, .factura-datos select { border: 1px solid var(--field-line); background: var(--field); border-radius: 8px; padding: 7px 9px; font-size: 15px; min-width: 0; flex: 1 1 140px; }
+.check.sub { margin: 6px 0 0 34px; font-weight: 500; flex-wrap: wrap; }
+.checklist-admin .check-item .grow { min-width: 0; }
+.cabecera { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 18px 0 8px; }
+.cabecera > h3 { flex: 1 0 140px; margin: 0; }
