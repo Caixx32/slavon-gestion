@@ -1,6 +1,6 @@
 # Checklist de cambios: App Obras Slavon
 
-Actualizado: 11/11/2026 · Fase 1 hecha (secciones 0, 1 «Vendedor» y «Datos del cliente», y 2) · Fase 2 hecha (sección 1 completa y catálogo de césped) · Fase 3 hecha (sección 3, Administración).
+Actualizado: 12/11/2026 · Fase 1 hecha (secciones 0, 1 «Vendedor» y «Datos del cliente», y 2) · Fase 2 hecha (sección 1 completa y catálogo de césped) · Fase 3 hecha (sección 3, Administración) · Fase 4 hecha (sección 4, Entregas).
 Para pasarle a Claude Code sobre el repo `Caixx32/slavon-gestion`. Lo marcado con ❓ necesita datos de Juan antes de programarlo.
 
 ---
@@ -211,10 +211,16 @@ Cada pago guarda:
 
 ## 4. ENTREGAS
 
-- [ ] **Fecha de entrega editable**. Mostrar las dos: **fecha estimada** (la que sale de la venta según el plazo) y **fecha real de entrega** (la coordinada con el cliente).
-- [ ] **Remitos firmados**: al entregar los materiales (no hace falta que esté instalado), subir **foto de uno o varios remitos** firmados por el cliente.
-- [ ] **Etapa 1 = "Base apta"**: primera etapa obligatoria, con **fotos** como constancia. Si las fotos están en WhatsApp, al menos tildar "constancia en WhatsApp" con fecha y quién la tiene.
-- [ ] **Acta de entrega**: botón para **descargar en PDF** (además de imprimir).
+- [x] **Fecha de entrega editable**. Mostrar las dos: **fecha estimada** (la que sale de la venta según el plazo) y **fecha real de entrega** (la coordinada con el cliente).
+  - Hecho: la estimada se cambia sólo desde la venta; la real la carga Entregas (encargados incluidos) y cada cambio queda en el historial con el motivo y quién. Avisos, agenda y «Próximas» usan la real si está y, si no, la estimada.
+- [x] **Remitos firmados**: al entregar los materiales (no hace falta que esté instalado), subir **foto de uno o varios remitos** firmados por el cliente.
+  - Hecho: fotos o PDF en Firebase Storage (`obras/{id}/remitos/`), con el día de la entrega y el n° de remito. Los suben todos los de Obras; los borran admin, administración o quien lo subió. Aviso al marcar entregada si no hay ninguno.
+- [x] **Etapa 1 = "Base apta"**: primera etapa obligatoria, con **fotos** como constancia. Si las fotos están en WhatsApp, al menos tildar "constancia en WhatsApp" con fecha y quién la tiene.
+  - Hecho: fija en el primer lugar (no se borra ni se mueve). Si la base no está apta: incidencia «Base no apta» con el aviso al cliente obligatorio (cuándo, cómo y a quién); no se avanzan las etapas de instalación ni se puede marcar entregada (flete y envío sí). Al quedar apta, la incidencia se cierra sola. En las obras ya cargadas, «Control de base apta» pasa a ser la Etapa 1.
+- [x] **Acta de entrega**: botón para **descargar en PDF** (además de imprimir).
+  - Hecho: incluye lo que está a cargo del cliente (lo que provee, la instalación si la hace él y los envíos no incluidos), el recuadro «SIN GARANTÍA» cuando instaló el cliente, la base apta, los remitos y las observaciones escritas antes de bajarla.
+- [x] **Cuadro «Materiales»**: aviso si faltan las cantidades de pegamento y cinta antes de la fecha de entrega.
+  - Hecho: si los pone Slavon y falta la cantidad, aviso en el cuadro (rojo a 7 días o menos de la entrega, o si ya pasó) y etiqueta «Faltan cantidades» en la lista de Entregas.
 
 ---
 

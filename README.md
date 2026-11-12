@@ -55,7 +55,12 @@ De la venta a la post-venta:
    - **Aviso:** 7 días antes de la entrega avisa lo que falte.
    - **Buscador de clientes** en cada área: por nombre, club, obra, teléfono, mail o n° de pedido.
    - **Catálogos** (*Más → Catálogos*): vendedores, revendedores, clientes, proveedores (con sus cuentas bancarias) y cuentas propias (W. MAX SRL, Atlantis, cajas de efectivo). No se borran: se dan de baja.
-3. **Entrega** (encargado de obra): cuadro «Materiales» (lo que lleva la obra y quién lo pone; el encargado carga cuánto pegamento y cinta y completa el envío), agenda de instalación con equipo (3 de AMBA + instaladores del interior) y aviso si un equipo queda en dos obras a la vez; duración sugerida (pádel completa 5 días por cancha, pádel césped 1). Flete, logística del interior (pasajes, estadía, comidas, ayudantes, viático), etapas con fotos, incidencias (ej: base no apta, con aviso al cliente) y checklist de entrega.
+3. **Entrega** (encargado de obra):
+   - **Fecha de entrega:** la **estimada** sale de la venta según el plazo; la **real** es la que se coordina con el cliente y la carga Entregas. Cada cambio queda en el historial (antes, después, motivo y quién). Los avisos, la agenda y «Próximas» usan la real si está y, si no, la estimada.
+   - **Materiales:** lo que lleva la obra y quién lo pone; el encargado carga cuánto pegamento y cinta y completa el envío. Si los pone Slavon y falta la cantidad, avisa: en rojo y con la etiqueta «Faltan cantidades» cuando la entrega es en 7 días o menos (o ya pasó).
+   - **Remitos firmados:** al entregar los materiales (no hace falta que esté instalada) se sube la foto de uno o varios remitos firmados por el cliente, o el PDF. Van a Firebase Storage, como los planos. Si no hay ninguno, avisa al marcarla entregada.
+   - **Etapa 1 «Base apta»:** siempre primera y obligatoria cuando instala Slavon. Para marcarla apta hace falta al menos una foto o la «Constancia en WhatsApp» (fecha y quién la tiene). Si la base no está apta se registra la incidencia con el aviso al cliente (cuándo, cómo y a quién) y **no se instala**: hasta que esté apta no se avanzan las etapas de instalación ni se puede marcar entregada (flete y envío sí). Al quedar apta, la incidencia se cierra sola.
+   - Agenda de instalación con equipo (3 de AMBA + instaladores del interior) y aviso si un equipo queda en dos obras a la vez; duración sugerida (pádel completa 5 días por cancha, pádel césped 1). Flete, logística del interior (pasajes, estadía, comidas, ayudantes, viático), etapas con fotos, incidencias y checklist de entrega.
 3b. **Administración:**
    - Pestañas «Por cobrar», «Cobradas / en entrega», «Entregadas» y «Todas»: la obra no desaparece al pasar a Entregas.
    - En cada obra:
@@ -66,7 +71,7 @@ De la venta a la post-venta:
      - Carpeta de comprobantes: ver, descargar uno o todos en .zip.
      - Botones «Saldo cobrado» (sólo con saldo 0) y «Pasar a Entregas».
      - Checklist administrativo, con la lógica de la factura: si tiene → razón social y CUIT; si no → ¿a dónde transfirió? → W. MAX o Atlantis: pedir la factura · otro: pedir la razón social.
-4. **Acta de entrega** para imprimir o guardar en PDF y que firme el cliente: datos, controles, fotos y garantía.
+4. **Acta de entrega** para que firme el cliente: botón «Descargar PDF» y «Imprimir». Datos, lo que incluye, la base apta, los remitos, **lo que está a cargo del cliente**, controles, fotos, garantía (o el recuadro **SIN GARANTÍA** si instaló el cliente) y observaciones que se escriben antes de bajarla.
 5. **Post-venta:** llamados al mes, a los 6 meses y al año, y control del vencimiento de la garantía.
 
 Tipos: fútbol, pádel solo césped, pádel cancha completa, hockey, tenis, residencial, mantenimiento (sólo clientes nuestros) y otro. Las etapas se arman según el tipo y lo vendido (arena, caucho, con o sin instalación) y se pueden editar en cada obra.
@@ -80,6 +85,8 @@ Tipos: fútbol, pádel solo césped, pádel cancha completa, hockey, tenis, resi
 | Catálogos (vendedores, revendedores, clientes, proveedores, cuentas) | ✔ | ✔ | ✘ |
 | Cargar ventas, habilitar entregas, post-venta | ✔ | ✔ | ✘ |
 | Agenda, equipos, etapas, fotos, checklist, logística, incidencias, marcar entregada | ✔ | ✔ | ✔ |
+| Fecha real de entrega, subir remitos firmados | ✔ | ✔ | ✔ |
+| Borrar remitos | ✔ | ✔ | sólo los suyos |
 | Eliminar obras | ✔ | ✘ | ✘ |
 
 Los datos de plata están en una colección aparte (`ventas`, con sus pagos y comprobantes adentro) que el encargado de obra no puede leer, igual que los catálogos: lo imponen las reglas de Firestore (`firestore.rules`), no sólo la pantalla.
@@ -97,12 +104,12 @@ Un usuario por persona para todas las apps: *Obras → Más → Usuarios y permi
 5. **Login con Google:** *Compilación → Authentication → Comenzar → Google → Habilitar* → elegir el mail de asistencia → *Guardar*.
 6. **Dominio autorizado:** *Authentication → Configuración → Dominios autorizados → Agregar dominio* → `caixx32.github.io`.
 7. **GitHub Pages:** repo → *Settings → Pages* → *Deploy from a branch* → rama `main`, carpeta `/ (root)` → *Save*.
-8. **Storage (planos):**
+8. **Storage (planos y remitos):**
    - Desde febrero de 2026, Firebase Storage necesita el plan **Blaze** (pago por uso, con una tarjeta asociada). El uso chico queda dentro de la cuota gratis; para eso, el bucket tiene que estar en una región de EE. UU. que la tenga, por ejemplo `us-central1`.
    - Activarlo en *Compilación → Storage → Comenzar*.
    - *Storage → Reglas* → pegar el contenido de `storage.rules` → *Publicar*.
    - Copiar el `storageBucket` en `shared/config.js` (si no estaba).
-   - En la demo los planos se guardan en el navegador.
+   - En la demo los planos y los remitos se guardan en el navegador.
 
 ## Archivos
 
@@ -111,7 +118,7 @@ Un usuario por persona para todas las apps: *Obras → Más → Usuarios y permi
 | `shared/` | Lo común a todas las apps: configuración de Firebase, conexión, login y permisos, pantalla de usuarios, estilos, íconos. En `shared/vendor/` van jsPDF (MIT) para los PDF y JSZip (MIT) para el .zip de comprobantes; funcionan sin conexión. |
 | `obras/` | App Obras (`app.js`), tipos de obra, etapas y modelos de césped (`etapas.js`), cuentas de la venta: m², cuotas e importes (`calculos.js`), estilos propios, app instalable (`sw.js`, `manifest.webmanifest`). |
 | `firestore.rules` | Reglas de seguridad de la base para pegar en Firebase (incluye pagos y catálogos). |
-| `storage.rules` | Reglas de Firebase Storage (planos): los ven todos los de Obras, los suben y borran admin y administración. |
+| `storage.rules` | Reglas de Firebase Storage. Planos: los ven todos los de Obras, los suben y borran admin y administración. Remitos: los ven y suben todos los de Obras; los borran admin, administración o quien lo subió. |
 
 HTML, CSS y JavaScript sin compilación. Firebase (Auth + Firestore) por CDN. Las fotos se guardan comprimidas dentro de Firestore (no hace falta Firebase Storage ni plan pago).
 
@@ -123,7 +130,9 @@ HTML, CSS y JavaScript sin compilación. Firebase (Auth + Firestore) por CDN. La
   - Cancha: `formato` (F5…F11), medidas, `blanco` (demarcación, parámetros, desglose, m², pendiente), `cespedDet` (modelo del catálogo, altura, color), `m2`, `incluye` (cada ítem con cantidad, quién lo provee y envío), `sinGarantia`, `clienteColocaArena`, `conStock`.
   - `planos`: link, nombre y fecha; el archivo está en Storage, en `obras/{id}/planos/`.
   - `materialesEntrega`: pegamento y cinta, los carga Entregas. `envios`: envío de cada ítem (sí / no / a definir), lo completa Ventas o Entregas.
-  - Operación: `etapas`, `checklist`, `incidencias`, `logistica`, `postventa`.
+  - `fechaEntrega` (estimada, de la venta) y `fechaEntregaReal` (coordinada con el cliente, la carga Entregas) con su historial `cambiosEntrega` (anterior, nueva, motivo, quién, cuándo).
+  - Operación: `etapas` (la primera, `tipo: 'base'`, es «Base apta», con `whatsapp` si la constancia está en un WhatsApp), `checklist`, `incidencias` («Base no apta» con `avisoFecha`, `avisoMedio`, `avisoA`), `logistica`, `postventa`.
+  - `obras/{id}/remitos/{id}`: remitos firmados: link, nombre, día de la entrega de materiales, n° o qué se entregó y quién lo subió. El archivo está en Storage, en `obras/{id}/remitos/`.
 - `ventas/{id de la obra}`: la plata, sólo admin y administración. Presupuesto, moneda, seña o anticipo pactado, forma de pago, cuotas, `iva` (sin factura / mínimo / total y monto), `tributos`, vendedores, revendedor (con su comisión fija) y contrato.
   - `saldoCobrado`: marca «Saldo cobrado» (fecha y quién).
   - `facturacion`: `aFacturar` a mano y `facturas` (fecha, número, quién la emite, monto, pago).

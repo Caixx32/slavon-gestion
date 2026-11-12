@@ -1,10 +1,10 @@
 'use strict';
 
 // App instalable y que abre sin señal. Al cambiar cualquier archivo, subí el número de CACHE.
-const CACHE = 'obras-v15';
+const CACHE = 'obras-v16';
 const SHELL = [
-  './', './index.html', './app.js?v=15', './etapas.js?v=15', './calculos.js?v=15', './obras.css?v=15', './manifest.webmanifest',
-  '../shared/base.css?v=15', '../shared/config.js?v=15', '../shared/cloud.js?v=15', '../shared/ui.js?v=15', '../shared/boot.js?v=15',
+  './', './index.html', './app.js?v=16', './etapas.js?v=16', './calculos.js?v=16', './obras.css?v=16', './manifest.webmanifest',
+  '../shared/base.css?v=16', '../shared/config.js?v=16', '../shared/cloud.js?v=16', '../shared/ui.js?v=16', '../shared/boot.js?v=16',
   '../shared/vendor/jspdf.umd.min.js', '../shared/vendor/jszip.min.js', '../shared/icons/logo.png',
   '../shared/icons/logo-white.png', '../shared/icons/favicon.png', '../shared/icons/icon-192.png',
 ];

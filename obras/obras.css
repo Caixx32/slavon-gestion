@@ -99,6 +99,9 @@ body.wide main { max-width: 1320px; }
 .acta-check li.ok { color: #1a1f23; }
 .acta-fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .acta-fotos img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; }
+.acta-cargo { margin: 0; padding-left: 18px; }
+.acta-cargo li { padding: 2px 0; }
+.acta-sin-garantia { border: 2px solid #e50d2d; background: #fdecee; color: #c80a28; font-weight: 800; border-radius: 6px; padding: 8px 12px; margin: 4px 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .acta-edit { border: 1px dashed #cdd2d7; border-radius: 6px; padding: 8px 10px; min-height: 50px; white-space: pre-wrap; outline: none; }
 .acta-firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 56px; text-align: center; font-weight: 600; }
 .acta-firmas .line { border-top: 1px solid #1a1f23; margin-bottom: 6px; }
@@ -227,3 +230,7 @@ select.sino { border: 1px solid var(--field-line); background: var(--field); bor
 .checklist-admin .check-item .grow { min-width: 0; }
 .cabecera { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 18px 0 8px; }
 .cabecera > h3 { flex: 1 0 140px; margin: 0; }
+
+/* Entregas: historial de cambios de la fecha real */
+details.cambios { margin: 2px 0 6px; }
+details.cambios summary { cursor: pointer; }

@@ -31,6 +31,18 @@ service firebase.storage {
       allow update: if false;
     }
 
+    // Remitos firmados de cada obra: los ven y los suben todos los de Obras (también los encargados), con su mail en el archivo.
+    // Los borran admin y administración, o quien lo subió. Sólo fotos o PDF, de hasta 20 MB.
+    match /obras/{obraId}/remitos/{archivo} {
+      allow read: if obrasMember();
+      allow create: if obrasMember()
+        && request.resource.metadata.por == myEmail()
+        && request.resource.size < 20 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf');
+      allow delete: if obrasGestion() || (obrasMember() && resource.metadata.por == myEmail());
+      allow update: if false;
+    }
+
     // Lo demás, cerrado.
     match /{todo=**} {
       allow read, write: if false;
