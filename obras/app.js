@@ -32,6 +32,9 @@
   let fotos = [];        // fotos de la obra abierta
   let fotosObraId = null;
   let stopFotos = null;
+  let remitos = [];      // remitos firmados de la obra abierta (archivos en Storage)
+  let remitosObraId = null;
+  let stopRemitos = null;
   const ui = { obrasFiltro: 'en_curso', q: '', pvFiltro: 'pendientes', agendaMes: null };
 
   const AVISO_DIAS = 7;        // días antes de la entrega para avisar lo que falta (saldo o contrato)
@@ -55,7 +58,7 @@
       if (cloud.demo) seedDemo();
       document.getElementById('app').replaceChildren(main);
       buildTabs();
-      cloud.subscribe('obras', (items) => { obras = items; render(); }, (e) => UI.toast(e.message, 5000));
+      cloud.subscribe('obras', (items) => { obras = items.map(conBase); render(); }, (e) => UI.toast(e.message, 5000));
       if (canVenta) { loadBNA(); setInterval(loadBNA, 15 * 60 * 1000); }
       if (canVenta) cloud.subscribe('ventas', (items) => { ventas = Object.fromEntries(items.map((v) => [v._id, v])); render(); }, (e) => UI.toast(e.message, 5000));
       if (canVenta) {
@@ -135,7 +138,22 @@
     return viewEntregas();
   }
 
+  function watchRemitos(obraId) {
+    if (obraId === remitosObraId) return;
+    if (stopRemitos) stopRemitos();
+    stopRemitos = null;
+    remitos = [];
+    remitosObraId = obraId;
+    if (obraId) {
+      stopRemitos = cloud.subscribe(`obras/${obraId}/remitos`, (items) => {
+        remitos = items.sort((a, b) => (b.fechaEntrega || '').localeCompare(a.fechaEntrega || '') || (b.subidoEn || '').localeCompare(a.subidoEn || ''));
+        if (['obra', 'acta'].includes(route()[0])) render();
+      }, (e) => UI.toast(e.message));
+    }
+  }
+
   function watchFotos(obraId) {
+    watchRemitos(obraId);
     if (obraId === fotosObraId) return;
     if (stopFotos) stopFotos();
     stopFotos = null;
@@ -420,7 +438,8 @@
     const k = canchaDe(o);
     return window.OBRAS_INCLUYE.filter((it) => k.incluye[it.id] && k.incluye[it.id].aplica).map((it) => {
       const x = k.incluye[it.id];
-      const cant = it.id === 'pegamento' || it.id === 'cinta' ? cantidadEntrega(o, it.id) : num(x.cantidad) ? `${fmtNum(num(x.cantidad))} ${x.unidad}` : '';
+      const cargada = ((o.materialesEntrega || {})[it.id] || {}).cantidad;
+      const cant = it.id === 'pegamento' || it.id === 'cinta' ? (x.provee === 'cliente' && !num(cargada) ? '' : cantidadEntrega(o, it.id)) : num(x.cantidad) ? `${fmtNum(num(x.cantidad))} ${x.unidad}` : '';
       return { id: it.id, nombre: it.nombre, texto: [cant, it.id === 'instalacion' ? (x.provee === 'cliente' ? 'a cargo del cliente' : 'la hace Slavon') : `la provee ${x.provee === 'cliente' ? 'el cliente' : 'Slavon'}`,
         conEnvio && !it.sinEnvio ? envioTexto(x.envio) : ''].filter(Boolean).join(' · '), cliente: x.provee === 'cliente', envio: it.sinEnvio ? null : envioNorm(x.envio) };
     });
@@ -447,6 +466,43 @@
   const esVendida = (o) => o.estado === 'vendida';
   const esCurso = (o) => !o.estado || o.estado === 'en_curso';
   const esTerminada = (o) => o.estado === 'terminada';
+  /* ----- Etapa 1 «Base apta» ----- */
+  // Va siempre primera cuando instala Slavon (no en mantenimiento ni «otro»). Sin base apta no se instala.
+  const instalaSlavon = (o) => (o.incluye && o.incluye.instalacion ? o.incluye.instalacion.provee !== 'cliente' : o.conInstalacion !== false);
+  function requiereBase(o) {
+    const t = TIPOS[o.tipo];
+    return !!t && !t.mantenimiento && o.tipo !== 'otro' && instalaSlavon(o);
+  }
+  const esEtapaBase = (e) => !!e && (e.tipo === 'base' || /base apta/i.test(e.nombre || ''));
+  const etapaBase = (o) => (o.etapas || []).find(esEtapaBase) || null;
+  const baseApta = (o) => { const b = etapaBase(o); return !!b && b.estado === 'hecha'; };
+  const baseNoApta = (o) => (o.incidencias || []).filter((x) => x.tipo === 'Base no apta' && !x.resuelta);
+  // Etapa de instalación que espera la base apta (flete, envío y entrega de materiales no esperan).
+  const esperaBase = (o, e) => requiereBase(o) && !esEtapaBase(e) && !window.OBRAS_ETAPA_SIN_BASE.test(e.nombre || '') && !baseApta(o);
+  // Obras ya cargadas: la etapa «Control de base apta» pasa a ser la Etapa 1 (si estaba hecha, queda hecha); si no la tienen, se agrega.
+  // Se acomoda al leer; queda guardado la próxima vez que se toquen las etapas.
+  function conBase(o) {
+    if (o.estado === 'terminada' || !requiereBase(o)) return o;
+    const list = (o.etapas || []).slice();
+    const i = list.findIndex(esEtapaBase);
+    if (i === 0 && list[0].tipo === 'base' && list[0].nombre === window.OBRAS_BASE_APTA) return o;
+    const b = i >= 0 ? list.splice(i, 1)[0] : { id: 'base', nombre: window.OBRAS_BASE_APTA, estado: 'pendiente', nota: '' };
+    // Se cambia la copia recién leída (no la base de datos), así conserva su _id.
+    o.etapas = [{ ...b, tipo: 'base', nombre: window.OBRAS_BASE_APTA, estado: b.estado === 'hecha' ? 'hecha' : 'pendiente' }, ...list];
+    return o;
+  }
+  const avisoTexto = (i) => (i.avisadoCliente ? ['Cliente avisado', i.avisoFecha ? 'el ' + UI.fmtDay(i.avisoFecha) : '', i.avisoMedio ? 'por ' + i.avisoMedio : '', i.avisoA ? 'a ' + i.avisoA : ''].filter(Boolean).join(' ') : 'Falta avisar al cliente');
+
+  // Fecha de entrega que manda: la real (coordinada con el cliente) si está; si no, la estimada de la venta.
+  const fechaEnt = (o) => o.fechaEntregaReal || o.fechaEntrega || '';
+  // «Estimada 20/11 · Real 25/11 (5 días después)».
+  function fechasEntregaTexto(o) {
+    if (!o.fechaEntrega && !o.fechaEntregaReal) return '—';
+    if (!o.fechaEntregaReal) return h('span', h('b', UI.fmtDay(o.fechaEntrega)), h('span.muted', ' · estimada (falta coordinar con el cliente)'));
+    const dif = o.fechaEntrega ? Math.round((new Date(o.fechaEntregaReal) - new Date(o.fechaEntrega)) / 86400000) : 0;
+    const difTxt = !o.fechaEntrega ? '' : dif === 0 ? ' (la misma)' : ` (${Math.abs(dif)} día${Math.abs(dif) > 1 ? 's' : ''} ${dif > 0 ? 'después' : 'antes'})`;
+    return h('span', o.fechaEntrega ? h('span.muted', `Estimada ${UI.fmtDay(o.fechaEntrega)} · `) : null, h('b', `Real ${UI.fmtDay(o.fechaEntregaReal)}`), h('span.muted', difTxt));
+  }
   const ESTADOS = { vendida: 'Vendida', en_curso: 'En entrega', terminada: 'Entregada' };
   const equipos = () => (config.equipos && config.equipos.length ? config.equipos : EQUIPOS_DEFAULT);
 
@@ -592,8 +648,8 @@
 
   // Ventas con la entrega cerca (o pasada) y la condición sin cumplir.
   const alertasEntrega = () => obras
-    .filter((o) => esVendida(o) && o.fechaEntrega && UI.daysUntil(o.fechaEntrega) <= AVISO_DIAS && !condicionOk(o))
-    .sort((a, b) => a.fechaEntrega.localeCompare(b.fechaEntrega));
+    .filter((o) => esVendida(o) && fechaEnt(o) && UI.daysUntil(fechaEnt(o)) <= AVISO_DIAS && !condicionOk(o))
+    .sort((a, b) => fechaEnt(a).localeCompare(fechaEnt(b)));
   // Ventas que ya cumplen la condición pero todavía no se habilitó la entrega.
   const paraHabilitar = () => obras.filter((o) => esVendida(o) && condicionOk(o));
   const proximasInstalaciones = (dias) => obras
@@ -758,7 +814,7 @@
     const v = ventas[o._id];
     let linea = null;
     if (k === 'ventas') linea = h('span.badge.warn', 'Incompleta');
-    if (k === 'admin') linea = condicionOk(o) ? h('span.badge.ok', 'Lista para Entregas') : urgencia(o.fechaEntrega);
+    if (k === 'admin') linea = condicionOk(o) ? h('span.badge.ok', 'Lista para Entregas') : urgencia(fechaEnt(o));
     if (k === 'entregas') linea = [progressBar(progreso(o)), h('div.small.muted', { style: { marginTop: '4px' } }, o.instInicio ? fechasInst(o) : 'Sin fecha de instalación')];
     if (k === 'postventa') { const p = (o.postventa || []).find((x) => !x.hecho); linea = p ? h('span.small', `Llamado ${p.label}: `, urgencia(p.fecha)) : null; }
     return h('div.board-card', { onclick: () => go('obra/' + o._id) },
@@ -794,7 +850,7 @@
   function viewAdmin() {
     if (!ui.adminTab) ui.adminTab = 'cobrar';
     const conVenta = obras.filter((o) => ventas[o._id]);
-    const enAdmin = conVenta.filter((o) => o.estado === 'vendida').sort((a, b) => (a.fechaEntrega || '9').localeCompare(b.fechaEntrega || '9'));
+    const enAdmin = conVenta.filter((o) => o.estado === 'vendida').sort((a, b) => (fechaEnt(a) || '9').localeCompare(fechaEnt(b) || '9'));
     const enEntrega = conVenta.filter((o) => esCurso(o) && o.estado !== 'vendida' && o.estado !== 'venta');
     const entregadas = conVenta.filter(esTerminada).sort((a, b) => (b.fin || '').localeCompare(a.fin || ''));
     const cuotasVencidas = conVenta.filter((o) => { const c = cobro(o); return c.fin && c.cuotas.some((q) => q.pendiente > 0 && q.fecha && UI.daysUntil(q.fecha) < 0); });
@@ -808,7 +864,7 @@
       const enPesos = c.moneda === 'USD' && tcHoy() && c.pendiente ? ' = ' + ars(c.pendiente * tcHoy()) : '';
       const estado = c.pendiente > 0 ? `saldo ${c.M(c.pendiente)}${enPesos}` : e.valida ? 'saldo cobrado' : c.fin ? 'saldo 0' : 'saldo 0, falta marcar «Saldo cobrado»';
       return h('div.item', { onclick: () => go('obra/' + o._id + '/admin') },
-        h('span.dot', { class: c.pendiente <= 0 ? 'done' : UI.daysUntil(o.fechaEntrega || '9999-12-31') <= AVISO_DIAS && esVendida(o) ? 'late' : '' }, c.fin ? '✎' : '$'),
+        h('span.dot', { class: c.pendiente <= 0 ? 'done' : UI.daysUntil(fechaEnt(o) || '9999-12-31') <= AVISO_DIAS && esVendida(o) ? 'late' : '' }, c.fin ? '✎' : '$'),
         h('div.grow', { style: { minWidth: 0 } },
           tituloObra(o),
           h('div.small.muted.ellipsis', [c.fin ? (c.v.contratoFirmado ? 'Financiado' : 'Financiado · falta el contrato') : 'Contado', estado].join(' · ')),
@@ -834,7 +890,7 @@
     if (ui.adminTab === 'cobrar') {
       const listas = enAdmin.filter((o) => condicionOk(o));
       const paraMarcar = enAdmin.filter((o) => !esFinanciado(ventas[o._id]) && estadoCobro(o).paraMarcar);
-      const urgentes = enAdmin.filter((o) => !condicionOk(o) && !paraMarcar.includes(o) && o.fechaEntrega && UI.daysUntil(o.fechaEntrega) <= AVISO_DIAS);
+      const urgentes = enAdmin.filter((o) => !condicionOk(o) && !paraMarcar.includes(o) && fechaEnt(o) && UI.daysUntil(fechaEnt(o)) <= AVISO_DIAS);
       const resto = enAdmin.filter((o) => !listas.includes(o) && !paraMarcar.includes(o) && !urgentes.includes(o));
       const aCobrar = sumaMonedas(enAdmin.filter((o) => !esFinanciado(ventas[o._id])).map((o) => { const c = cobro(o); return [c.moneda, c.pendiente]; }));
       contenido = [
@@ -878,7 +934,7 @@
     const sinFecha = enCurso.filter((o) => !o.instInicio && o.conInstalacion !== false);
     const semana = proximasInstalaciones(7);
     const inc = incidenciasAbiertas();
-    const proximas = obras.filter((o) => o.estado === 'vendida' && o.fechaEntrega && UI.daysUntil(o.fechaEntrega) <= 14).sort((a, b) => a.fechaEntrega.localeCompare(b.fechaEntrega));
+    const proximas = obras.filter((o) => o.estado === 'vendida' && fechaEnt(o) && UI.daysUntil(fechaEnt(o)) <= 14).sort((a, b) => fechaEnt(a).localeCompare(fechaEnt(b)));
     const seg = h('div.seg', { style: { marginTop: '14px' } }, [['obras', `Obras en entrega (${enCurso.length})`], ['agenda', 'Agenda'], ['equipos', 'Equipos']].map(([v, t]) =>
       h('button', { type: 'button', class: ui.entTab === v ? 'on' : '', onclick: () => { ui.entTab = v; render(); } }, t)));
     let content;
@@ -891,11 +947,11 @@
           kpi(sinFecha.length, 'Para programar', null, sinFecha.length ? 'warn' : ''),
           kpi(inc.length, 'Incidencias abiertas', null, inc.length ? 'bad' : '')),
         sinFecha.length ? section('Para programar', sinFecha.map((o) => obraRow(o, h('button.btn.small.primary', { type: 'button', onclick: (e) => { e.stopPropagation(); programar(o); } }, 'Programar'),
-          [tipoNombre(o.tipo), o.ubicacion, 'entrega ' + UI.fmtDay(o.fechaEntrega)].filter(Boolean).join(' · '))), '') : null,
+          [tipoNombre(o.tipo), o.ubicacion, fechaEnt(o) ? 'entrega ' + UI.fmtDay(fechaEnt(o)) : ''].filter(Boolean).join(' · '))), '') : null,
         inc.length ? section('Incidencias abiertas', inc.map(incItem), '') : null,
         h('h2', { style: { marginTop: '22px' } }, 'En curso'),
         enCurso.length ? enCurso.map(obraCard) : h('div.card.empty', 'No hay obras en entrega.'),
-        proximas.length ? section('Próximas (todavía en Administración)', proximas.map((o) => obraRow(o, h('span.badge', 'Entrega ' + UI.fmtDay(o.fechaEntrega)))), '') : null,
+        proximas.length ? section('Próximas (todavía en Administración)', proximas.map((o) => obraRow(o, h('span.row', { style: { gap: '4px' } }, cantidadesUrgentes(o) ? h('span.badge.red', 'Faltan cantidades') : null, h('span.badge', 'Entrega ' + UI.fmtDay(fechaEnt(o)))))), '') : null,
       ];
     }
     setMain(areaHead('entregas', 'Coordinar e instalar: agenda, equipo, flete, logística del interior, etapas con fotos, incidencias y checklist. Al terminar se marca entregada y pasa a Post-venta.'), buscador(), seg, content);
@@ -915,7 +971,8 @@
         act ? [h('span.muted', act.estado === 'en_curso' ? 'En curso:' : 'Sigue:'), act.nombre] : null,
         h('span.grow'),
         o.instInicio ? h('span.badge.blue', fechasInst(o)) : h('span.badge.warn', 'Sin fecha'),
-        (o.incidencias || []).some((i) => !i.resuelta) ? h('span.badge.red', 'Incidencia') : null));
+        baseNoApta(o).length ? h('span.badge.red', 'Base no apta') : (o.incidencias || []).some((i) => !i.resuelta) ? h('span.badge.red', 'Incidencia') : null,
+        cantidadesUrgentes(o) ? h('span.badge.red', 'Faltan cantidades') : null));
   }
 
   function instItem(o) {
@@ -1015,8 +1072,8 @@
   // Plano guardado en el almacenamiento de archivos: en la obra queda sólo el link, el nombre y la fecha.
   async function verPlano(p) {
     let url = p.url;
-    try { if (!url || url.startsWith('demo:')) url = await cloud.fileURL(p.path); } catch (e) { return UI.toast('No se pudo abrir el plano: ' + e.message, 5000); }
-    if (!url) return UI.toast('No se encontró el archivo del plano.', 5000);
+    try { if (!url || url.startsWith('demo:')) url = await cloud.fileURL(p.path); } catch (e) { return UI.toast('No se pudo abrir el archivo: ' + e.message, 5000); }
+    if (!url) return UI.toast('No se encontró el archivo.', 5000);
     if ((p.mime || '').startsWith('image/')) return UI.showPhoto(url, p.nombre);
     if (url.startsWith('data:')) {
       const blob = await (await fetch(url)).blob();
@@ -1071,7 +1128,7 @@
         infoRow('Vendió', vendedoresTexto(v) || '—'),
         v.revendedor ? infoRow('Revendedor', [h('div', v.revendedor.nombre), h('div.small.muted', comisionTexto(v.revendedor) ? `Comisión: ${comisionTexto(v.revendedor)}` : 'Comisión sin cargar')]) : null,
         infoRow('Plazo', plazoTexto(o) || '—'),
-        infoRow('Fecha de entrega', o.fechaEntrega ? h('b', UI.fmtDay(o.fechaEntrega)) : '—'),
+        infoRow('Fecha de entrega', fechasEntregaTexto(o)),
         infoRow('Garantía', garantiaTexto(o) || '—'),
         v.notasVenta ? infoRow('Notas de la venta', h('div', { style: { whiteSpace: 'pre-wrap' } }, v.notasVenta)) : null),
       cobrosBlock(o),
@@ -1554,7 +1611,7 @@
     const v = c.v;
     const fin = c.fin;
     const enAdmin = o.estado === 'vendida';
-    const d = o.fechaEntrega ? UI.daysUntil(o.fechaEntrega) : null;
+    const d = fechaEnt(o) ? UI.daysUntil(fechaEnt(o)) : null;
     watchComprobantes(o._id);
     let paso = null;
     if (o.estado === 'venta') paso = pasoBox('Todavía está en Ventas: falta completar la venta.', h('button.btn.small', { type: 'button', onclick: () => editObra(o) }, 'Completar'));
@@ -1564,7 +1621,7 @@
     else if (enAdmin && !fin && e.paraMarcar) paso = pasoBox('El saldo está en cero: falta marcar «Saldo cobrado».', null);
     else if (enAdmin) {
       paso = pasoBox(h('span', fin ? 'Falta el contrato firmado en nuestro poder.' : `Falta cobrar el saldo antes de la entrega de materiales: ${c.M(c.pendiente)}.`,
-        d != null && d <= AVISO_DIAS ? h('b', { style: { color: 'var(--red)' } }, ` Entrega ${UI.relDays(o.fechaEntrega)}: si no está, se retrasa.`) : null),
+        d != null && d <= AVISO_DIAS ? h('b', { style: { color: 'var(--red)' } }, ` Entrega ${UI.relDays(fechaEnt(o))}: si no está, se retrasa.`) : null),
       h('button.btn.primary.small', { type: 'button', onclick: () => (fin ? registrarContrato(o) : registrarPago(o)) }, fin ? 'Contrato recibido' : 'Registrar pago'));
     } else paso = pasoBox(`Ya pasó a ${AREAS[areaDe(o)].nombre}. ${c.pendiente > 0 ? `Saldo pendiente: ${c.M(c.pendiente)}.` : 'Saldo 0.'}`, null);
 
@@ -1991,7 +2048,14 @@
     let paso = null;
     if (o.estado === 'venta' || o.estado === 'vendida') paso = pasoBox(`Todavía está en ${AREAS[areaDe(o)].nombre}. Se puede ir programando, pero no se entrega hasta que administración la pase a Entregas.`, null);
     else if (term) paso = pasoBox(`Entregada el ${UI.fmtDay(o.fin)}.`, h('button.btn.small', { type: 'button', onclick: () => go('acta/' + o._id) }, icon('clip'), 'Acta de entrega'));
-    else paso = pasoBox(`${hechas} de ${(o.etapas || []).length} etapas hechas.`, h('button.btn.dark.small', { type: 'button', onclick: () => terminar(o) }, icon('check'), 'Marcar entregada'));
+    else if (requiereBase(o) && !baseApta(o)) {
+      const no = baseNoApta(o);
+      const k = (o.etapas || []).findIndex(esEtapaBase);
+      paso = pasoBox(no.length
+        ? h('span', { style: { color: 'var(--red)' } }, h('b', 'Base no apta: no se instala. '), avisoTexto(no[0]) + '.')
+        : 'Falta la Etapa 1 «Base apta» (con fotos o constancia en WhatsApp). Hasta que no esté, no se instala ni se puede marcar entregada.',
+      h('button.btn.primary.small', { type: 'button', onclick: () => editEtapa(o, k) }, 'Base apta'));
+    } else paso = pasoBox(`${hechas} de ${(o.etapas || []).length} etapas hechas.`, h('button.btn.dark.small', { type: 'button', onclick: () => terminar(o) }, icon('check'), 'Marcar entregada'));
     return [
       paso,
       !term && esCurso(o) ? h('div', { style: { margin: '12px 0 0' } }, progressBar(pct)) : null,
@@ -1999,6 +2063,8 @@
       entregaCard(o),
       h('div.row', h('h2.grow', 'Materiales'), !term ? h('button.btn.small', { type: 'button', onclick: () => editMateriales(o) }, icon('edit'), 'Cantidades y envío') : null),
       materialesCard(o),
+      h('div.row', h('h2.grow', 'Remitos firmados'), h('button.btn.small', { type: 'button', onclick: () => subirRemitos(o) }, icon('camera'), 'Subir remito')),
+      remitosCard(o),
       o.interior ? [h('h2', 'Logística del interior'), logisticaCard(o)] : null,
       h('div.row', h('h2.grow', 'Etapas'), h('button.btn.small.ghost', { type: 'button', onclick: () => editEtapas(o) }, icon('edit'), 'Editar')),
       (o.etapas || []).length ? h('div.list', (o.etapas || []).map((e, i) => etapaItem(o, e, i))) : h('div.card.empty.small', 'Sin etapas.'),
@@ -2121,10 +2187,106 @@
   /* ---------- Entrega, agenda y equipos ---------- */
 
   // Materiales de la obra: lo calculado en la venta y, para pegamento y cinta, la cantidad que carga Entregas.
+  // Pegamento y cinta que pone Slavon y todavía no tienen la cantidad cargada.
+  function faltanCantidades(o) {
+    if (esTerminada(o)) return [];
+    const k = canchaDe(o);
+    return ['pegamento', 'cinta'].filter((id) => k.incluye[id] && k.incluye[id].aplica && k.incluye[id].provee !== 'cliente'
+      && !num(((o.materialesEntrega || {})[id] || {}).cantidad));
+  }
+  // Para la etiqueta «Faltan cantidades» de las listas: sólo cuando la entrega es en 7 días o menos (o ya pasó).
+  const cantidadesUrgentes = (o) => faltanCantidades(o).length > 0 && !!fechaEnt(o) && UI.daysUntil(fechaEnt(o)) <= AVISO_DIAS;
+  // Aviso del cuadro Materiales: rojo si la entrega es en 7 días o menos (o ya pasó), amarillo si falta más.
+  function avisoCantidades(o) {
+    const f = faltanCantidades(o);
+    if (!f.length) return null;
+    const que = f.map((id) => (id === 'cinta' ? 'cinta' : 'pegamento')).join(' y ');
+    const fe = fechaEnt(o);
+    const d = fe ? UI.daysUntil(fe) : null;
+    const urgente = d != null && d <= AVISO_DIAS;
+    const cuando = fe ? `la entrega es ${d < 0 ? 'desde el ' + UI.fmtDay(fe) + ' (ya pasó)' : 'el ' + UI.fmtDay(fe) + ' (' + UI.relDays(fe) + ')'}` : 'todavía no hay fecha de entrega';
+    return h('div.aviso' + (urgente ? '.rojo' : ''), { style: { margin: '0 0 8px' } },
+      `${urgente ? '⚠ ' : ''}Faltan las cantidades de ${que}: ${cuando}.`,
+      !esTerminada(o) ? h('button.btn.small.ghost', { type: 'button', style: { marginLeft: '6px', padding: '2px 6px' }, onclick: () => editMateriales(o) }, 'Cargar') : null);
+  }
+
   function materialesCard(o) {
     const lineas = incluyeLineas(o).filter((l) => l.id !== 'instalacion');
-    return h('div.card.info', lineas.map((l) => infoRow(l.nombre, [h('div', l.texto),
-      h('div.row.wrap', { style: { gap: '4px', marginTop: '3px' } }, l.cliente ? h('span.badge.warn', 'Lo pone el cliente') : null)])));
+    return h('div', avisoCantidades(o), h('div.card.info', lineas.map((l) => infoRow(l.nombre, [h('div', l.texto),
+      h('div.row.wrap', { style: { gap: '4px', marginTop: '3px' } }, l.cliente ? h('span.badge.warn', 'Lo pone el cliente') : null)]))));
+  }
+
+  /* ----- Remitos firmados por el cliente al recibir los materiales (no hace falta que esté instalada) ----- */
+  // En la base: obras/{obra}/remitos/{id} con el link; el archivo (foto o PDF) en Storage: obras/{obra}/remitos/.
+
+  const puedeBorrarRemito = (r) => canVenta || r.por === me.email;
+  function remitosCard(o) {
+    if (remitosObraId !== o._id) return h('div.card.empty.small', 'Cargando…');
+    if (!remitos.length) return h('div.card.empty.small', 'Todavía no hay remitos firmados. Se suben al entregar los materiales (no hace falta que esté instalada).');
+    return h('div.list', remitos.map((r) => h('div.item', { style: { cursor: 'default' } },
+      h('span.dot.done', icon(r.mime === 'application/pdf' ? 'file' : 'camera')),
+      h('div.grow', { style: { minWidth: 0 } },
+        h('div.ellipsis', r.nota || r.nombre),
+        h('div.small.muted.ellipsis', [`Entrega ${UI.fmtDay(r.fechaEntrega)}`, r.porNombre, r.nota ? r.nombre : ''].filter(Boolean).join(' · '))),
+      h('button.btn.small.ghost', { type: 'button', onclick: () => verPlano(r) }, 'Ver'),
+      puedeBorrarRemito(r) ? h('button.btn.small.ghost', { type: 'button', 'aria-label': 'Borrar remito', onclick: () => borrarRemito(o, r) }, icon('trash')) : null)));
+  }
+
+  function subirRemitos(o) {
+    const nuevos = [];
+    const list = h('div.list', { style: { marginBottom: '8px' } });
+    const paint = () => {
+      list.hidden = !nuevos.length;
+      list.replaceChildren(...nuevos.map((a) => h('div.item', { style: { cursor: 'default', padding: '9px 12px' } },
+        icon(a.mime === 'application/pdf' ? 'file' : 'eye'),
+        h('div.grow.ellipsis', a.nombre),
+        h('button.btn.small.ghost', { type: 'button', 'aria-label': 'Quitar', onclick: () => { nuevos.splice(nuevos.indexOf(a), 1); paint(); } }, icon('trash')))));
+    };
+    paint();
+    const elegir = () => elegirArchivos(async (files) => {
+      for (const f of files) {
+        try { nuevos.push(await archivoParaSubir(f)); } catch (e) { UI.toast(e.message, 6000); }
+      }
+      paint();
+    });
+    const body = h('div',
+      h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
+      UI.field({ label: 'Día en que se entregaron los materiales', name: 'fechaEntrega', type: 'date', value: UI.today() }),
+      UI.field({ label: 'N° de remito o qué se entregó (opcional)', name: 'nota', placeholder: 'Ej: Remito 0001-00012345 · césped y blanco' }),
+      list,
+      h('button.btn.small', { type: 'button', onclick: elegir }, icon('camera'), 'Elegir fotos o PDF'),
+      h('p.small.muted', 'Foto de uno o varios remitos firmados por el cliente, o el PDF. Se guardan en el almacenamiento de archivos, como los planos.'));
+    UI.sheet({
+      title: 'Subir remitos firmados',
+      body: [body],
+      actions: [{ label: 'Cancelar' }, {
+        label: 'Subir', kind: 'primary', onClick: async ({ error }) => {
+          if (!nuevos.length) { error('Elegí al menos una foto o un PDF del remito firmado.'); return false; }
+          const v = UI.values(body);
+          const total = nuevos.length;
+          UI.toast(total > 1 ? `Subiendo ${total} archivos…` : 'Subiendo…', 20000);
+          while (nuevos.length) {
+            const a = nuevos[0];
+            const path = `obras/${o._id}/remitos/${a.id}-${nombreSeguro(a.nombre)}`;
+            let url;
+            try { url = await cloud.upload(path, a.blob, a.mime, { por: me.email }); } catch (e) { paint(); throw new Error('No se pudo subir «' + a.nombre + '» (hace falta conexión): ' + (e.message || e)); }
+            cloud.put(`obras/${o._id}/remitos`, a.id, {
+              obraId: o._id, nombre: a.nombre, mime: a.mime, path, url, tamano: a.blob.size,
+              fechaEntrega: v.fechaEntrega || UI.today(), nota: (v.nota || '').trim(), por: me.email, porNombre: me.nombre, subidoEn: new Date().toISOString(),
+            });
+            nuevos.shift();
+          }
+          UI.toast(total > 1 ? `${total} remitos guardados` : 'Remito guardado');
+        },
+      }],
+    });
+  }
+
+  async function borrarRemito(o, r) {
+    if (!(await UI.confirm('¿Borrar el remito?', `Se borra «${r.nota || r.nombre}». No se puede deshacer.`, 'Borrar'))) return;
+    cloud.del(`obras/${o._id}/remitos`, r._id);
+    cloud.removeFile(r.path).catch(() => {});
+    UI.toast('Remito borrado');
   }
 
   // Entregas completa cuánto pegamento y cinta lleva, y el envío de cada ítem (Sí / No / A definir).
@@ -2165,13 +2327,43 @@
   function entregaCard(o) {
     const sup = superpuestas(o, o.equipo, o.instInicio, o.instFin);
     return h('div.card.info',
-      infoRow('Fecha de entrega', o.fechaEntrega ? UI.fmtDay(o.fechaEntrega) : '—'),
+      infoRow('Entrega estimada', o.fechaEntrega ? [UI.fmtDay(o.fechaEntrega), h('div.small.muted', 'Sale de la venta según el plazo' + (plazoTexto(o) ? ` (${plazoTexto(o)})` : ''))] : '—'),
+      infoRow('Entrega real', h('span.row.wrap', { style: { gap: '8px' } },
+        o.fechaEntregaReal ? h('span', h('b', UI.fmtDay(o.fechaEntregaReal)), h('span.muted', ' · ' + UI.relDays(o.fechaEntregaReal))) : h('span.badge.warn', 'Sin coordinar'),
+        !esTerminada(o) ? h('button.btn.small', { type: 'button', onclick: () => coordinarFecha(o) }, icon('calendar'), o.fechaEntregaReal ? 'Cambiar' : 'Coordinar fecha') : null)),
+      (o.cambiosEntrega || []).length ? h('details.cambios', h('summary.small.muted', `${o.cambiosEntrega.length} cambio${o.cambiosEntrega.length > 1 ? 's' : ''} de fecha`),
+        h('div.small', [...o.cambiosEntrega].reverse().map((c) => h('div', { style: { margin: '4px 0' } },
+          `${UI.fmtDay(c.fecha)} · ${c.porNombre || ''}: ${c.anterior ? UI.fmtDay(c.anterior) + ' → ' : ''}${UI.fmtDay(c.nueva)}`, c.motivo ? h('span.muted', ` · «${c.motivo}»`) : null)))) : null,
       infoRow('Instalación', h('span.row.wrap', { style: { gap: '8px' } }, o.instInicio ? fechasInst(o) : 'Sin programar',
         !esTerminada(o) && o.conInstalacion !== false ? h('button.btn.small', { type: 'button', onclick: () => programar(o) }, icon('calendar'), o.instInicio ? 'Cambiar' : 'Programar') : null)),
       o.conInstalacion !== false ? infoRow('Equipo', [o.equipo || '—', sup.length ? h('div.small', { style: { color: 'var(--warn)' } }, '⚠ Ese equipo también está en: ' + sup.map((x) => x.nombre).join(', ')) : null]) : null,
       infoRow('Responsable de entrega', o.responsable ? userName(o.responsable) : '—'),
       infoRow('Flete', h('span.row.wrap', { style: { gap: '8px' } }, o.flete || '—', !esTerminada(o) ? h('button.btn.small.ghost', { type: 'button', onclick: () => editFlete(o) }, icon('edit')) : null)),
       o.habilitadaFecha ? h('div.small.muted', { style: { marginTop: '6px' } }, `Entrega habilitada el ${UI.fmtDay(o.habilitadaFecha)}${o.habilitadaPorNombre ? ' por ' + o.habilitadaPorNombre : ''}`) : null);
+  }
+
+  // Fecha real de entrega: la que se coordina con el cliente. Cada cambio queda registrado (antes, después, motivo, quién).
+  function coordinarFecha(o) {
+    const fecha = UI.field({ label: 'Fecha real de entrega (coordinada con el cliente)', name: 'fecha', type: 'date', value: o.fechaEntregaReal || o.fechaEntrega || UI.today() });
+    const motivo = UI.field({ label: o.fechaEntregaReal ? 'Por qué cambia' : 'Nota (opcional)', name: 'motivo', type: 'textarea', placeholder: o.fechaEntregaReal ? 'Ej: el cliente pidió pasarla, la base no estaba lista, llovió…' : 'Ej: coordinado por WhatsApp con el cliente' });
+    const body = h('div', h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
+      o.fechaEntrega ? h('p.small.muted', `Estimada según la venta: ${UI.fmtDay(o.fechaEntrega)}.`) : null,
+      fecha, motivo);
+    UI.sheet({
+      title: o.fechaEntregaReal ? 'Cambiar la fecha de entrega' : 'Coordinar la fecha de entrega',
+      body: [body],
+      actions: [{ label: 'Cancelar' }, {
+        label: 'Guardar', kind: 'primary', onClick: ({ error }) => {
+          const v = UI.values(body);
+          if (!v.fecha) { error('Poné la fecha.'); return false; }
+          if (o.fechaEntregaReal && v.fecha !== o.fechaEntregaReal && !String(v.motivo || '').trim()) { error('Contá por qué cambia la fecha: queda en el historial.'); return false; }
+          if (v.fecha === o.fechaEntregaReal) return;
+          const cambiosEntrega = [...(o.cambiosEntrega || []), { anterior: o.fechaEntregaReal || '', nueva: v.fecha, motivo: String(v.motivo || '').trim(), por: me.email, porNombre: me.nombre, fecha: UI.today() }];
+          cloud.patch('obras', o._id, { fechaEntregaReal: v.fecha, cambiosEntrega, ...stamp() });
+          UI.toast('Fecha de entrega guardada');
+        },
+      }],
+    });
   }
 
   function responsableField(value) {
@@ -2184,7 +2376,7 @@
   function programar(o) {
     const t = TIPOS[o.tipo] || TIPOS.otro;
     const sugeridos = t.dias ? t.dias * Math.max(1, num(o.cantidad) || 1) : 0;
-    const desde = UI.field({ label: 'Instalación desde', name: 'instInicio', type: 'date', value: o.instInicio || o.fechaEntrega || UI.today() });
+    const desde = UI.field({ label: 'Instalación desde', name: 'instInicio', type: 'date', value: o.instInicio || fechaEnt(o) || UI.today() });
     const hasta = UI.field({ label: 'Hasta (estimado)', name: 'instFin', type: 'date', value: o.instFin || '' });
     const aviso = h('div.small', { style: { color: 'var(--warn)', marginBottom: '10px' } });
     const eqSel = UI.field({ label: 'Equipo de instalación', name: 'equipo', type: 'select', value: o.equipo || '', options: [['', 'Sin asignar'], ...equipos().map((e) => [e, e]), ...(o.equipo && !equipos().includes(o.equipo) ? [[o.equipo, o.equipo]] : [])] });
@@ -2244,7 +2436,7 @@
     const iso = (d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const mesNombre = first.toLocaleDateString('es-AR', { month: 'long' }).replace(/^./, (c) => c.toUpperCase()) + ' ' + y;
     const conFecha = obras.filter((o) => !esTerminada(o) && o.instInicio);
-    const entregas = obras.filter((o) => esVendida(o) && o.fechaEntrega && !o.instInicio);
+    const entregas = obras.filter((o) => (esVendida(o) || esCurso(o)) && fechaEnt(o) && !o.instInicio);
     const moveMonth = (n) => { const d = new Date(y, m - 1 + n, 1); ui.agendaMes = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; render(); };
 
     const cells = [];
@@ -2252,7 +2444,7 @@
     for (let d = 1; d <= days; d++) {
       const day = iso(d);
       const inst = conFecha.filter((o) => day >= o.instInicio && day <= (o.instFin || o.instInicio));
-      const ent = entregas.filter((o) => o.fechaEntrega === day);
+      const ent = entregas.filter((o) => fechaEnt(o) === day);
       cells.push(h('div.cal-day', { class: day === UI.today() ? 'today' : '' },
         h('div.cal-num', d),
         inst.map((o) => h('button.cal-chip', { type: 'button', class: (TIPOS[o.tipo] || {}).estructura ? 'full' : '', title: [o.nombre, o.equipo].filter(Boolean).join(' · '), onclick: () => go('obra/' + o._id) }, (o.equipo ? o.equipo.replace(/^Equipo\s*/i, '') + ' · ' : '') + o.nombre)),
@@ -2316,7 +2508,7 @@
       h('div.grow',
         h('div', { style: { fontWeight: 600 } }, i.tipo),
         h('div.small.muted', [UI.fmtDay(i.fecha), i.porNombre, i.detalle].filter(Boolean).join(' · ')),
-        !i.resuelta ? h('div.small', { style: { color: i.avisadoCliente ? 'var(--ok)' : 'var(--red)' } }, i.avisadoCliente ? 'Cliente avisado' : 'Falta avisar al cliente') : h('div.small.muted', 'Resuelta ' + UI.fmtDay(i.resueltaFecha))),
+        !i.resuelta ? h('div.small', { style: { color: i.avisadoCliente ? 'var(--ok)' : 'var(--red)' } }, avisoTexto(i)) : h('div.small.muted', i.resolucion || 'Resuelta ' + UI.fmtDay(i.resueltaFecha))),
       icon('chev'))));
   }
 
@@ -2324,26 +2516,49 @@
 
   function editIncidencia(o, inc, tipoInicial) {
     const isNew = !inc;
+    const tipoF = UI.field({ label: 'Qué pasó', name: 'tipo', type: 'select', value: inc ? inc.tipo : tipoInicial || window.OBRAS_INCIDENCIAS[0], options: window.OBRAS_INCIDENCIAS.map((t) => [t, t]) });
+    const avisadoChk = h('input', { type: 'checkbox', name: 'avisadoCliente', checked: !!(inc && inc.avisadoCliente) });
+    const avisoBox = h('div',
+      fila2(UI.field({ label: 'Cuándo se le avisó', name: 'avisoFecha', type: 'date', value: (inc && inc.avisoFecha) || UI.today() }),
+        UI.field({ label: 'Cómo', name: 'avisoMedio', type: 'select', value: (inc && inc.avisoMedio) || window.OBRAS_AVISO_MEDIOS[0], options: window.OBRAS_AVISO_MEDIOS.map((m) => [m, m]) })),
+      UI.field({ label: 'A quién', name: 'avisoA', value: (inc && inc.avisoA) || '', placeholder: 'Ej: Juan (el dueño), el arquitecto' }));
+    const notaBase = h('div.aviso.rojo', 'Si la base no está apta no se instala. Hay que avisarle al cliente y dejar registrado cuándo, cómo y a quién.');
+    const pintar = () => {
+      const base = tipoF.querySelector('select').value === 'Base no apta';
+      notaBase.hidden = !base;
+      avisoBox.hidden = !avisadoChk.checked;
+    };
+    tipoF.querySelector('select').addEventListener('change', pintar);
+    avisadoChk.addEventListener('change', pintar);
     const body = h('div',
       h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
-      UI.field({ label: 'Qué pasó', name: 'tipo', type: 'select', value: inc ? inc.tipo : tipoInicial || window.OBRAS_INCIDENCIAS[0], options: window.OBRAS_INCIDENCIAS.map((t) => [t, t]) }),
+      tipoF, notaBase,
       UI.field({ label: 'Detalle', name: 'detalle', type: 'textarea', value: inc ? inc.detalle : '', placeholder: 'Ej: la base tiene desnivel en el sector norte, no se puede instalar' }),
-      h('label.check', h('input', { type: 'checkbox', name: 'avisadoCliente', checked: !!(inc && inc.avisadoCliente) }), 'Cliente avisado'),
-      !isNew ? h('label.check', h('input', { type: 'checkbox', name: 'resuelta', checked: !!inc.resuelta }), 'Resuelta') : null);
+      h('label.check', avisadoChk, 'Cliente avisado'),
+      avisoBox,
+      !isNew ? h('label.check', h('input', { type: 'checkbox', name: 'resuelta', checked: !!inc.resuelta }), 'Resuelta') : null,
+      inc && inc.resolucion ? h('p.small.muted', inc.resolucion) : null);
+    pintar();
     UI.sheet({
       title: isNew ? 'Nueva incidencia' : 'Incidencia',
       body: [body],
       actions: [
         !isNew && canVenta ? { label: 'Eliminar', kind: 'danger', onClick: () => { cloud.patch('obras', o._id, { incidencias: (o.incidencias || []).filter((x) => x.id !== inc.id), ...stamp() }); } } : { label: 'Cancelar' },
         {
-          label: 'Guardar', kind: 'primary', onClick: () => {
+          label: 'Guardar', kind: 'primary', onClick: ({ error }) => {
             const v = UI.values(body);
+            if (v.tipo === 'Base no apta') {
+              if (!v.detalle) { error('Contá qué tiene la base.'); return false; }
+              if (!v.avisadoCliente) { error('Si la base no está apta hay que avisarle al cliente: tildá «Cliente avisado» y completá cuándo, cómo y a quién.'); return false; }
+              if (!v.avisoA) { error('Poné a quién se le avisó.'); return false; }
+            }
+            const aviso = v.avisadoCliente ? { avisoFecha: v.avisoFecha || UI.today(), avisoMedio: v.avisoMedio, avisoA: v.avisoA } : { avisoFecha: '', avisoMedio: '', avisoA: '' };
             const list = (o.incidencias || []).map((x) => ({ ...x }));
             if (isNew) {
-              list.unshift({ id: uid(), tipo: v.tipo, detalle: v.detalle, avisadoCliente: v.avisadoCliente, resuelta: false, fecha: UI.today(), por: me.email, porNombre: me.nombre });
+              list.unshift({ id: uid(), tipo: v.tipo, detalle: v.detalle, avisadoCliente: v.avisadoCliente, ...aviso, resuelta: false, fecha: UI.today(), por: me.email, porNombre: me.nombre });
             } else {
               const k = list.findIndex((x) => x.id === inc.id);
-              list[k] = { ...inc, tipo: v.tipo, detalle: v.detalle, avisadoCliente: v.avisadoCliente, resuelta: v.resuelta, resueltaFecha: v.resuelta && !inc.resuelta ? UI.today() : v.resuelta ? inc.resueltaFecha : '' };
+              list[k] = { ...inc, tipo: v.tipo, detalle: v.detalle, avisadoCliente: v.avisadoCliente, ...aviso, resuelta: v.resuelta, resueltaFecha: v.resuelta && !inc.resuelta ? UI.today() : v.resuelta ? inc.resueltaFecha : '' };
             }
             cloud.patch('obras', o._id, { incidencias: list, ...stamp() });
             UI.toast('Incidencia guardada');
@@ -2357,11 +2572,26 @@
 
   function etapaItem(o, e, i) {
     const n = fotos.filter((f) => f.etapaId === e.id).length;
+    if (esEtapaBase(e) && requiereBase(o)) {
+      const no = baseNoApta(o);
+      const ok = e.estado === 'hecha';
+      return h('div.item.etapa', { onclick: () => editEtapa(o, i) },
+        h('span.dot', { class: ok ? 'done' : no.length ? 'late' : '' }, ok ? icon('check') : no.length ? '!' : '1'),
+        h('div.grow',
+          h('div', { style: { fontWeight: 700 } }, e.nombre, h('span.badge.chico', { style: { marginLeft: '6px' } }, 'Obligatoria')),
+          h('div.small', { class: ok ? 'muted' : '', style: ok ? null : { color: no.length ? 'var(--red)' : 'var(--warn)' } },
+            ok ? [`Apta ${UI.fmtDay(e.fecha)}${e.porNombre ? ' · ' + e.porNombre : ''}`, n ? `${n} foto${n > 1 ? 's' : ''}` : '',
+              e.whatsapp ? `constancia en WhatsApp (la tiene ${e.whatsapp.quien}, ${UI.fmtDay(e.whatsapp.fecha)})` : ''].filter(Boolean).join(' · ')
+              : no.length ? `No apta: no se instala · ${avisoTexto(no[0])}` : 'Pendiente: hace falta una foto o la constancia en WhatsApp')),
+        icon('chev'));
+    }
+    const espera = esperaBase(o, e) && e.estado === 'pendiente';
     const cls = e.estado === 'hecha' ? 'done' : e.estado === 'en_curso' ? 'doing' : '';
     return h('div.item.etapa', { onclick: () => editEtapa(o, i) },
       h('span.dot', { class: cls }, e.estado === 'hecha' ? icon('check') : String(i + 1)),
       h('div.grow',
         h('div', { style: { fontWeight: e.estado === 'en_curso' ? 700 : 500 } }, e.nombre),
+        espera ? h('div.small.muted', '🔒 Espera la base apta') : null,
         e.estado !== 'pendiente' || e.nota || n ? h('div.small.muted',
           [e.estado === 'hecha' ? `Hecha ${UI.fmtDay(e.fecha)}${e.porNombre ? ' · ' + e.porNombre : ''}` : e.estado === 'en_curso' ? 'En curso' : '',
             n ? `${n} foto${n > 1 ? 's' : ''}` : '',
@@ -2371,23 +2601,27 @@
 
   function editEtapa(o, i) {
     const e = o.etapas[i];
+    if (!e) return;
+    if (esEtapaBase(e) && requiereBase(o)) return editBase(o, i);
     let estado = e.estado;
+    const bloq = esperaBase(o, e);
     const segEl = h('div.seg');
     const paintSeg = () => segEl.replaceChildren(...[['pendiente', 'Pendiente'], ['en_curso', 'En curso'], ['hecha', 'Hecha']].map(([v, t]) =>
-      h('button', { type: 'button', class: estado === v ? 'on' : '', onclick: () => { estado = v; paintSeg(); fechaWrap.hidden = estado !== 'hecha'; } }, t)));
+      h('button', { type: 'button', class: estado === v ? 'on' : '', disabled: bloq && v !== 'pendiente' && v !== e.estado, onclick: () => { estado = v; paintSeg(); fechaWrap.hidden = estado !== 'hecha'; } }, t)));
     paintSeg();
     const fechaWrap = UI.field({ label: 'Fecha en que se terminó', name: 'fecha', type: 'date', value: e.fecha || UI.today() });
     fechaWrap.hidden = estado !== 'hecha';
     const nota = UI.field({ label: 'Nota', name: 'nota', type: 'textarea', value: e.nota, placeholder: 'Ej: faltó material, llovió, se reprogramó…' });
     const propias = fotos.filter((f) => f.etapaId === e.id);
-    const esBase = /base/i.test(e.nombre);
-    const body = h('div', h('p.muted', { style: { marginTop: '-8px' } }, o.nombre), segEl, fechaWrap, nota,
-      esBase ? h('button.btn.danger.small', { type: 'button', style: { marginBottom: '12px', paddingLeft: 0 }, onclick: () => { sh.close(); nuevaIncidencia(o, 'Base no apta'); } }, '⚠ La base no está apta: registrar y avisar al cliente') : null,
+    const body = h('div', h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
+      bloq ? h('div.aviso' + (baseNoApta(o).length ? '.rojo' : ''), '🔒 Primero la Etapa 1 «Base apta»: sin base apta no se instala.') : null,
+      segEl, fechaWrap, nota,
       h('div.row', { style: { marginBottom: '10px' } }, h('b.grow', 'Fotos de esta etapa'),
         h('button.btn.small', { type: 'button', onclick: async () => { await guardar(); sh.close(); addFotos(o, e.id); } }, icon('camera'), 'Agregar')),
       fotosGrid(propias, o, false));
     async function guardar() {
       const v = UI.values(body);
+      if (bloq && estado !== 'pendiente' && estado !== e.estado) throw new Error('Primero la Etapa 1 «Base apta»: sin base apta no se instala.');
       const etapas = o.etapas.map((x) => ({ ...x }));
       const nueva = { ...e, estado, nota: v.nota };
       if (estado === 'hecha') {
@@ -2408,17 +2642,96 @@
     });
   }
 
+  // Etapa 1 «Base apta»: obligatoria. Apta = al menos una foto de la base o la constancia en WhatsApp (fecha y quién la tiene).
+  function editBase(o, i) {
+    const e = o.etapas[i];
+    let apta = e.estado === 'hecha';
+    const wa0 = e.whatsapp || null;
+    const propias = fotos.filter((f) => f.etapaId === e.id);
+    const no = baseNoApta(o);
+    const segEl = h('div.seg');
+    const fechaWrap = UI.field({ label: 'Fecha del control', name: 'fecha', type: 'date', value: e.fecha || UI.today() });
+    const paintSeg = () => {
+      segEl.replaceChildren(...[[false, 'Pendiente'], [true, 'Base apta']].map(([v, t]) =>
+        h('button', { type: 'button', class: apta === v ? 'on' : '', onclick: () => { apta = v; paintSeg(); } }, t)));
+      fechaWrap.hidden = !apta;
+    };
+    paintSeg();
+    const waChk = h('input', { type: 'checkbox', name: 'wa', checked: !!wa0 });
+    const waBox = fila2(UI.field({ label: 'Fecha de las fotos', name: 'waFecha', type: 'date', value: wa0 ? wa0.fecha : UI.today() }),
+      UI.field({ label: 'Quién las tiene', name: 'waQuien', value: wa0 ? wa0.quien : me.nombre, placeholder: 'Ej: Beto, en su WhatsApp' }));
+    waBox.hidden = !wa0;
+    waChk.addEventListener('change', () => { waBox.hidden = !waChk.checked; });
+    const body = h('div',
+      h('p.muted', { style: { marginTop: '-8px' } }, o.nombre),
+      h('p.small.muted', 'Etapa 1, obligatoria. Para marcarla apta hace falta al menos una foto de la base o la constancia en WhatsApp. Sin base apta no se instala.'),
+      no.length ? h('div.aviso.rojo', `Base no apta (${UI.fmtDay(no[0].fecha)}): ${no[0].detalle || ''} · ${avisoTexto(no[0])}. Al marcarla apta se cierra sola.`) : null,
+      segEl, fechaWrap,
+      h('div.row', { style: { margin: '4px 0 10px' } }, h('b.grow', `Fotos de la base (${propias.length})`),
+        h('button.btn.small', { type: 'button', onclick: agregarFotos }, icon('camera'), 'Agregar')),
+      fotosGrid(propias, o, false),
+      h('label.check', { style: { marginTop: '12px' } }, waChk, 'Constancia en WhatsApp (las fotos están en un WhatsApp)'),
+      waBox,
+      UI.field({ label: 'Nota', name: 'nota', type: 'textarea', value: e.nota, placeholder: 'Ej: nivelada, con la pendiente bien' }),
+      h('button.btn.danger.small', { type: 'button', style: { marginBottom: '4px', paddingLeft: 0 }, onclick: () => { sh.close(); nuevaIncidencia(o, 'Base no apta'); } }, '⚠ La base no está apta: registrar que se avisó al cliente'));
+    async function agregarFotos() {
+      await guardar(false);
+      sh.close();
+      await addFotos(o, e.id);
+      setTimeout(() => { const ob = obras.find((x) => x._id === o._id); const k = ob ? (ob.etapas || []).findIndex(esEtapaBase) : -1; if (k >= 0) editBase(ob, k); }, 400);
+    }
+    // validar = false: guarda lo escrito sin marcarla apta si todavía falta la constancia (al ir a sacar fotos).
+    async function guardar(validar = true) {
+      const v = UI.values(body);
+      const whatsapp = v.wa ? { fecha: v.waFecha || UI.today(), quien: v.waQuien, por: me.email, porNombre: me.nombre } : null;
+      if (validar && whatsapp && !whatsapp.quien) throw new Error('Poné quién tiene las fotos de la base en su WhatsApp.');
+      const constancia = propias.length || (whatsapp && whatsapp.quien);
+      if (validar && apta && !constancia) throw new Error('Para marcar la base apta hace falta al menos una foto de la base, o tildar «Constancia en WhatsApp» con la fecha y quién la tiene.');
+      const estado = apta && constancia ? 'hecha' : 'pendiente';
+      const nueva = { ...e, tipo: 'base', estado, nota: v.nota, whatsapp: whatsapp && whatsapp.quien ? { ...(wa0 && wa0.quien === whatsapp.quien && wa0.fecha === whatsapp.fecha ? wa0 : whatsapp) } : null };
+      if (estado === 'hecha') {
+        nueva.fecha = v.fecha || UI.today();
+        if (e.estado !== 'hecha') { nueva.por = me.email; nueva.porNombre = me.nombre; }
+      } else { nueva.fecha = ''; nueva.por = ''; nueva.porNombre = ''; }
+      const etapas = o.etapas.map((x) => ({ ...x }));
+      etapas[i] = nueva;
+      const cambios = {};
+      if (JSON.stringify(etapas) !== JSON.stringify(o.etapas)) cambios.etapas = etapas;
+      // Al quedar apta se cierran solas las incidencias «Base no apta».
+      if (estado === 'hecha' && no.length) {
+        cambios.incidencias = (o.incidencias || []).map((x) => (x.tipo === 'Base no apta' && !x.resuelta
+          ? { ...x, resuelta: true, resueltaFecha: nueva.fecha, resolucion: `Base apta el ${UI.fmtDay(nueva.fecha)}${nueva.porNombre ? ' (' + nueva.porNombre + ')' : ''}` } : x));
+      }
+      if (Object.keys(cambios).length) cloud.patch('obras', o._id, { ...cambios, ...stamp() });
+      return estado;
+    }
+    const sh = UI.sheet({
+      title: 'Etapa 1 · Base apta',
+      body: [body],
+      actions: [{ label: 'Cancelar' }, { label: 'Guardar', kind: 'primary', onClick: async () => { const est = await guardar(); UI.toast(est === 'hecha' ? 'Base apta: ya se puede instalar' : 'Guardado'); } }],
+    });
+  }
+
   function editEtapas(o) {
     let etapas = (o.etapas || []).map((e) => ({ ...e }));
+    const fijaBase = requiereBase(o);
     const listEl = h('div');
     function paint() {
+      // La Etapa 1 «Base apta» queda fija: no se borra ni se mueve, y nada se pone antes.
+      const fija = (e) => fijaBase && esEtapaBase(e);
       listEl.replaceChildren(...etapas.map((e, i) => {
+        if (fija(e)) {
+          return h('div.edit-row',
+            h('span.small.muted', { style: { width: '20px' } }, i + 1),
+            h('input', { value: e.nombre, disabled: true, 'aria-label': 'Etapa 1' }),
+            h('span.small.muted', { style: { whiteSpace: 'nowrap' } }, '🔒 Obligatoria'));
+        }
         const inp = h('input', { value: e.nombre, placeholder: 'Nombre de la etapa' });
         inp.addEventListener('input', () => { e.nombre = inp.value; });
         return h('div.edit-row',
           h('span.small.muted', { style: { width: '20px' } }, i + 1),
           inp,
-          h('button.btn.small.ghost', { type: 'button', disabled: i === 0, onclick: () => { [etapas[i - 1], etapas[i]] = [etapas[i], etapas[i - 1]]; paint(); } }, icon('up')),
+          h('button.btn.small.ghost', { type: 'button', disabled: i === 0 || fija(etapas[i - 1]), onclick: () => { [etapas[i - 1], etapas[i]] = [etapas[i], etapas[i - 1]]; paint(); } }, icon('up')),
           h('button.btn.small.ghost', { type: 'button', disabled: i === etapas.length - 1, onclick: () => { [etapas[i + 1], etapas[i]] = [etapas[i], etapas[i + 1]]; paint(); } }, icon('down')),
           h('button.btn.small.danger', { type: 'button', onclick: () => { etapas.splice(i, 1); paint(); } }, icon('trash')));
       }));
@@ -2539,6 +2852,18 @@
   /* ---------- Entregar / reabrir ---------- */
 
   function terminar(o) {
+    // Sin base apta no se instala: no se puede marcar entregada.
+    if (requiereBase(o) && !baseApta(o)) {
+      const k = (o.etapas || []).findIndex(esEtapaBase);
+      const no = baseNoApta(o);
+      UI.sheet({
+        title: 'Todavía no se puede entregar',
+        body: [h('div.aviso.rojo', no.length ? `La base no está apta (${avisoTexto(no[0])}): no se instala.` : 'Falta la Etapa 1 «Base apta».'),
+          h('p.muted', 'Para marcar la obra entregada, primero la base tiene que estar apta, con al menos una foto o la constancia en WhatsApp.')],
+        actions: [{ label: 'Cerrar' }, { label: 'Ir a la base', kind: 'primary', onClick: () => editEtapa(o, k) }],
+      });
+      return;
+    }
     const faltanEt = (o.etapas || []).filter((e) => e.estado !== 'hecha').length;
     const faltanCh = (o.checklist || []).filter((c) => !c.ok).length;
     const incAb = (o.incidencias || []).filter((i) => !i.resuelta).length;
@@ -2546,6 +2871,7 @@
     if (faltanEt) avisos.push(`${faltanEt} etapa${faltanEt > 1 ? 's' : ''} sin terminar`);
     if (faltanCh) avisos.push(`${faltanCh} control${faltanCh > 1 ? 'es' : ''} del checklist sin tildar`);
     if (incAb) avisos.push(`${incAb} incidencia${incAb > 1 ? 's' : ''} sin resolver`);
+    if (remitosObraId === o._id && !remitos.length) avisos.push('ningún remito firmado cargado');
     const fecha = UI.field({ label: 'Fecha de entrega', name: 'fin', type: 'date', value: UI.today() });
     UI.sheet({
       title: 'Marcar como entregada',
@@ -2646,54 +2972,229 @@
 
   /* ---------- Acta de entrega (para imprimir o guardar en PDF) ---------- */
 
+  // Lo que va en el acta (en pantalla, para imprimir y en el PDF).
+  function actaDatos(o) {
+    const k = canchaDe(o);
+    const fecha = o.fin || UI.today();
+    const vence = garantiaMesesDe(o) ? UI.addMonths(fecha, garantiaMesesDe(o)) : '';
+    // A cargo del cliente: lo que provee él, la instalación si la hace él y los envíos que no están incluidos.
+    const aCargo = [];
+    for (const it of window.OBRAS_INCLUYE) {
+      const x = k.incluye[it.id];
+      if (!x || !x.aplica || x.provee !== 'cliente') continue;
+      if (it.id === 'instalacion') aCargo.push('Instalación: la hace el cliente.');
+      else aCargo.push(`${it.nombre}: la provee el cliente${!it.entregas && num(x.cantidad) ? ` (${fmtNum(num(x.cantidad))} ${x.unidad})` : ''}.`);
+    }
+    if (k.multisportResidencial && k.clienteColocaArena) aCargo.push('Colocación de la arena: la hace el cliente. Sin arena no tiene garantía.');
+    const sinEnvio = window.OBRAS_INCLUYE.filter((it) => !it.sinEnvio && k.incluye[it.id] && k.incluye[it.id].aplica && k.incluye[it.id].provee !== 'cliente' && envioNorm(k.incluye[it.id].envio) === 'no');
+    if (sinEnvio.length) aCargo.push(`Envío no incluido (a cargo del cliente): ${sinEnvio.map((it) => it.nombre.toLowerCase()).join(', ')}.`);
+    const b = requiereBase(o) ? etapaBase(o) : null;
+    const nFotosBase = b ? fotos.filter((f) => f.etapaId === b.id).length : 0;
+    const base = !b ? '' : b.estado !== 'hecha' ? 'Pendiente' : [`Apta, controlada el ${UI.fmtDay(b.fecha)}${b.porNombre ? ' por ' + b.porNombre : ''}`,
+      nFotosBase ? `${nFotosBase} foto${nFotosBase > 1 ? 's' : ''}` : '', b.whatsapp ? `constancia en WhatsApp (la tiene ${b.whatsapp.quien}, ${UI.fmtDay(b.whatsapp.fecha)})` : ''].filter(Boolean).join(' · ');
+    const rem = remitosObraId === o._id ? remitos : [];
+    const fechasRem = [...new Set(rem.map((r) => r.fechaEntrega).filter(Boolean))].sort().map((f) => UI.fmtDay(f));
+    const remitosTxt = rem.length ? `${rem.length} remito${rem.length > 1 ? 's' : ''} firmado${rem.length > 1 ? 's' : ''}${fechasRem.length ? ` (entrega de materiales: ${fechasRem.join(', ')})` : ''}` : 'Sin remitos cargados';
+    const finales = fotos.filter((f) => /cepillado|entregado|informe/i.test(((o.etapas || []).find((e) => e.id === f.etapaId) || {}).nombre || ''));
+    return {
+      numero: o._id.slice(0, 8).toUpperCase(),
+      fecha,
+      cliente: clientePed(o),
+      telefono: telDe(o),
+      obra: o.nombre,
+      ubicacion: o.ubicacion,
+      tipo: tipoNombre(o.tipo) + (k.formato ? ` · ${window.OBRAS_FORMATOS[k.formato].nombre}` : '') + (num(o.cantidad) > 1 ? ` · ${o.cantidad} canchas` : ''),
+      medidas: medidasTexto(o),
+      blanco: blancoTexto(o),
+      superficie: m2Texto(k.m2),
+      cesped: k.cesped,
+      incluye: incluyeLineas(o, false).map((l) => `${l.nombre}: ${l.texto}`),
+      arena: k.multisportResidencial ? (k.clienteColocaArena ? 'El cliente coloca la arena. Sin arena no tiene garantía.' : 'La arena la colocamos nosotros. Sin arena no tiene garantía.') : '',
+      instalacion: fechasInst(o),
+      base,
+      remitos: remitosTxt,
+      aCargo,
+      sinGarantia: k.sinGarantia,
+      garantia: k.sinGarantia ? '' : (vence ? `Garantía de ${garantiaTexto(o)} desde la fecha de entrega, válida hasta el ${UI.fmtDay(vence)}, según las condiciones del certificado de garantía.` : 'Garantía según las condiciones del certificado de garantía.')
+        + ' Se entregan al cliente el certificado de garantía y el manual de mantenimiento. El mantenimiento periódico indicado en el manual es condición para la garantía.',
+      checklist: (o.checklist || []).map((c) => ({ ok: !!c.ok, texto: c.texto })),
+      observaciones: (o.incidencias || []).filter((i) => !i.resuelta).map((i) => `${i.tipo}: ${i.detalle}`).join('\n') || 'Sin observaciones.',
+      fotos: (finales.length ? finales : fotos.filter((f) => !b || f.etapaId !== b.id)).slice(0, 6),
+      pedido: o.pedido || '',
+      clienteNombre: o.cliente || o.nombre,
+    };
+  }
+  const SIN_GARANTIA_TXT = 'SIN GARANTÍA: la instalación estuvo a cargo del cliente.';
+  const RECIBE_TXT = 'El cliente recibe el trabajo descripto, en las condiciones indicadas, y deja constancia de que se le explicó el uso y el mantenimiento de la cancha.';
+
   function viewActa(id) {
     const o = obras.find((x) => x._id === id);
     if (!o) { setMain(backBtn(), h('div.card.empty', 'Cargando…')); return; }
     watchFotos(id);
-    const finales = fotos.filter((f) => /cepillado|entregado|informe/i.test(((o.etapas || []).find((e) => e.id === f.etapaId) || {}).nombre || ''));
-    const fotosActa = (finales.length ? finales : fotos).slice(0, 6);
-    const fecha = o.fin || UI.today();
-    const vence = garantiaMesesDe(o) ? UI.addMonths(fecha, garantiaMesesDe(o)) : '';
+    const d = actaDatos(o);
     const row = (k, v) => (v ? h('tr', h('th', k), h('td', v)) : null);
-    const editable = (txt) => h('div.acta-edit', { contentEditable: 'true' }, txt);
+    // Las observaciones se escriben antes de imprimir o descargar; si la pantalla se redibuja, no se pierden.
+    if (ui.actaObs && ui.actaObs.id !== id) ui.actaObs = null;
+    const obs = h('div.acta-edit', { contentEditable: 'true' }, ui.actaObs ? ui.actaObs.texto : d.observaciones);
+    obs.addEventListener('input', () => { ui.actaObs = { id, texto: obs.innerText }; });
     setMain(
       h('div.acta-tools.no-print',
         backBtn(),
         h('span.grow'),
-        h('button.btn.primary', { type: 'button', onclick: () => window.print() }, 'Imprimir / Guardar PDF')),
-      h('p.small.muted.no-print', 'Revisá el acta. Las observaciones se pueden escribir acá antes de imprimir. Para mandarla por WhatsApp: «Guardar como PDF» en la ventana de impresión.'),
+        h('button.btn', { type: 'button', onclick: () => window.print() }, 'Imprimir'),
+        h('button.btn.primary', { type: 'button', onclick: () => actaPDF(o, obs.innerText) }, icon('file'), 'Descargar PDF')),
+      h('p.small.muted.no-print', 'Revisá el acta. Las observaciones se pueden escribir acá antes de imprimir o descargar el PDF (para mandarla por WhatsApp).'),
       h('div.acta',
         h('div.acta-head',
           h('img', { src: '../shared/icons/logo.png', alt: 'SLAVON' }),
-          h('div', h('div.acta-title', 'Acta de entrega'), h('div.acta-sub', `N° ${o._id.slice(0, 8).toUpperCase()} · ${UI.fmtDay(fecha)}`))),
+          h('div', h('div.acta-title', 'Acta de entrega'), h('div.acta-sub', `N° ${d.numero} · ${UI.fmtDay(d.fecha)}`))),
         h('h3', 'Cliente y obra'),
         h('table.acta-table', h('tbody',
-          row('Cliente', clientePed(o)), row('Teléfono', telDe(o)), row('Obra', o.nombre), row('Ubicación', o.ubicacion))),
+          row('Cliente', d.cliente), row('Teléfono', d.telefono), row('Obra', d.obra), row('Ubicación', d.ubicacion))),
         h('h3', 'Trabajo entregado'),
         h('table.acta-table', h('tbody',
-          row('Tipo', tipoNombre(o.tipo) + (canchaDe(o).formato ? ` · ${window.OBRAS_FORMATOS[canchaDe(o).formato].nombre}` : '') + (num(o.cantidad) > 1 ? ` · ${o.cantidad} canchas` : '')),
-          row('Medidas', medidasTexto(o)),
-          row('Blanco', blancoTexto(o)),
-          row('Superficie de césped', m2Texto(canchaDe(o).m2)),
-          row('Césped', canchaDe(o).cesped),
-          row('Incluye', h('div', incluyeLineas(o, false).map((l) => h('div', `${l.nombre}: ${l.texto}`)))),
-          canchaDe(o).multisportResidencial ? row('Arena', canchaDe(o).clienteColocaArena ? 'El cliente coloca la arena. Sin arena no tiene garantía.' : 'La arena la colocamos nosotros. Sin arena no tiene garantía.') : null,
-          row('Instalación', fechasInst(o)),
-          row('Fecha de entrega', UI.fmtDay(fecha)))),
+          row('Tipo', d.tipo),
+          row('Medidas', d.medidas),
+          row('Blanco', d.blanco),
+          row('Superficie de césped', d.superficie),
+          row('Césped', d.cesped),
+          row('Incluye', h('div', d.incluye.map((t) => h('div', t)))),
+          row('Arena', d.arena),
+          row('Instalación', d.instalacion),
+          row('Base', d.base),
+          row('Remitos', d.remitos),
+          row('Fecha de entrega', UI.fmtDay(d.fecha)))),
+        d.aCargo.length ? [h('h3', 'A cargo del cliente'), h('ul.acta-cargo', d.aCargo.map((t) => h('li', t)))] : null,
         h('h3', 'Controles de entrega'),
-        h('ul.acta-check', (o.checklist || []).map((c) => h('li', { class: c.ok ? 'ok' : '' }, (c.ok ? '☑ ' : '☐ ') + c.texto))),
-        fotosActa.length ? [h('h3', 'Fotos'), h('div.acta-fotos', fotosActa.map((f) => h('img', { src: 'data:image/jpeg;base64,' + f.data })))] : null,
+        h('ul.acta-check', d.checklist.map((c) => h('li', { class: c.ok ? 'ok' : '' }, (c.ok ? '☑ ' : '☐ ') + c.texto))),
+        d.fotos.length ? [h('h3', 'Fotos'), h('div.acta-fotos', d.fotos.map((f) => h('img', { src: 'data:image/jpeg;base64,' + f.data })))] : null,
         h('h3', 'Garantía y mantenimiento'),
-        canchaDe(o).sinGarantia ? h('p', h('b', 'SIN GARANTÍA: la instalación estuvo a cargo del cliente.')) : null,
-        canchaDe(o).sinGarantia ? null : h('p', vence ? `Garantía de ${garantiaTexto(o)} desde la fecha de entrega, válida hasta el ${UI.fmtDay(vence)}, según las condiciones del certificado de garantía.` : 'Garantía según las condiciones del certificado de garantía.',
-          ' Se entregan al cliente el certificado de garantía y el manual de mantenimiento. El mantenimiento periódico indicado en el manual es condición para la garantía.'),
+        d.sinGarantia ? h('div.acta-sin-garantia', SIN_GARANTIA_TXT) : h('p', d.garantia),
         h('h3', 'Observaciones'),
-        editable((o.incidencias || []).filter((i) => !i.resuelta).map((i) => `${i.tipo}: ${i.detalle}`).join('\n') || 'Sin observaciones.'),
-        h('p.small', 'El cliente recibe el trabajo descripto, en las condiciones indicadas, y deja constancia de que se le explicó el uso y el mantenimiento de la cancha.'),
+        obs,
+        h('p.small', RECIBE_TXT),
         h('div.acta-firmas',
           h('div', h('div.line'), 'Por SLAVON', h('div.small', 'Firma y aclaración')),
           h('div', h('div.line'), 'Cliente', h('div.small', 'Firma, aclaración y DNI')))),
     );
+  }
+
+  // Acta de entrega en PDF (para mandar por WhatsApp o mail). Usa jsPDF, que va incluido: funciona sin conexión.
+  async function actaPDF(o, observaciones) {
+    let lib;
+    try { lib = await cargarJsPDF(); } catch (e) { return UI.toast(e.message, 5000); }
+    const d = actaDatos(o);
+    const doc = new lib.jsPDF({ unit: 'mm', format: 'a4' });
+    const M = 16;
+    const W = 210 - 2 * M;
+    const ALTO = 297 - M;
+    let y = M;
+    const lugar = (alto) => { if (y + alto > ALTO) { doc.addPage(); y = M; } };
+    const LH = (pt) => pt * 1.2 * 0.3528; // alto de una línea en mm
+    const alto = (t, ancho, pt) => doc.setFontSize(pt).splitTextToSize(pdfTxt(t), ancho).length * LH(pt);
+    try {
+      const logo = await imagenDataURL('../shared/icons/logo.png');
+      const lw = 46;
+      doc.addImage(logo.url, 'PNG', M, y, lw, (lw * logo.h) / logo.w);
+    } catch (e) { doc.setFont('helvetica', 'bold').setFontSize(18).text('SLAVON', M, y + 7); }
+    doc.setFont('helvetica', 'bold').setFontSize(18).setTextColor(0).text('ACTA DE ENTREGA', 210 - M, y + 6, { align: 'right' });
+    doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(100).text(pdfTxt(`N° ${d.numero}   ·   ${UI.fmtDay(d.fecha)}`), 210 - M, y + 12, { align: 'right' });
+    y += 18;
+    doc.setDrawColor(229, 13, 45).setLineWidth(0.8).line(M, y, 210 - M, y);
+    doc.setLineWidth(0.2);
+    y += 7;
+    const titulo = (t) => {
+      lugar(14);
+      y += 2;
+      doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(34, 40, 44).text(pdfTxt(t.toUpperCase()), M, y);
+      y += 1.8;
+      doc.setDrawColor(225).line(M, y, 210 - M, y);
+      y += 5;
+    };
+    const fila = (k, v) => {
+      if (!v || (Array.isArray(v) && !v.length)) return;
+      doc.setFont('helvetica', 'normal').setFontSize(10);
+      const vs = (Array.isArray(v) ? v : [v]).flatMap((t) => doc.splitTextToSize(pdfTxt(t), W - 44));
+      lugar(vs.length * LH(10) + 2);
+      doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(100).text(pdfTxt(k), M, y);
+      doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(0).text(vs, M + 44, y, { lineHeightFactor: 1.2 });
+      y += vs.length * LH(10) + 2;
+    };
+    const parrafo = (t, tam = 10) => {
+      doc.setFont('helvetica', 'normal').setFontSize(tam);
+      const ls = doc.splitTextToSize(pdfTxt(t), W);
+      lugar(ls.length * LH(tam) + 2);
+      doc.setTextColor(0).text(ls, M, y, { lineHeightFactor: 1.2 });
+      y += ls.length * LH(tam) + 2;
+    };
+    titulo('Cliente y obra');
+    fila('Cliente', d.cliente); fila('Teléfono', d.telefono); fila('Obra', d.obra); fila('Ubicación', d.ubicacion);
+    titulo('Trabajo entregado');
+    fila('Tipo', d.tipo); fila('Medidas', d.medidas); fila('Blanco', d.blanco); fila('Superficie de césped', d.superficie); fila('Césped', d.cesped);
+    fila('Incluye', d.incluye); fila('Arena', d.arena); fila('Instalación', d.instalacion); fila('Base', d.base); fila('Remitos', d.remitos);
+    fila('Fecha de entrega', UI.fmtDay(d.fecha));
+    if (d.aCargo.length) {
+      titulo('A cargo del cliente');
+      for (const t of d.aCargo) { parrafo('•  ' + t); y -= 0.6; }
+    }
+    titulo('Controles de entrega');
+    const col = (W - 6) / 2;
+    for (let i = 0; i < d.checklist.length; i += 2) {
+      doc.setFont('helvetica', 'normal').setFontSize(9);
+      const par = d.checklist.slice(i, i + 2).map((c) => doc.splitTextToSize(pdfTxt(`[${c.ok ? 'x' : '  '}] ${c.texto}`), col));
+      const h2 = Math.max(...par.map((l) => l.length)) * LH(9) + 1.4;
+      lugar(h2);
+      par.forEach((l, j) => doc.setTextColor(d.checklist[i + j].ok ? 0 : 120).text(l, M + j * (col + 6), y, { lineHeightFactor: 1.2 }));
+      y += h2;
+    }
+    if (d.fotos.length) {
+      const gap = 4;
+      const fw = (W - 2 * gap) / 3;
+      const fh = fw * 0.75;
+      lugar(fh + 16); // el título no queda solo al pie de la hoja
+      titulo('Fotos');
+      for (let i = 0; i < d.fotos.length; i += 3) {
+        lugar(fh + gap);
+        for (let j = 0; j < 3 && i + j < d.fotos.length; j++) {
+          try {
+            const url = 'data:image/jpeg;base64,' + d.fotos[i + j].data;
+            const img = await imagenDataURL(url);
+            const r = Math.min(fw / img.w, fh / img.h);
+            const w = img.w * r;
+            const hh = img.h * r;
+            doc.addImage(url, 'JPEG', M + j * (fw + gap) + (fw - w) / 2, y + (fh - hh) / 2, w, hh);
+          } catch (e) { /* una foto que no se puede leer no frena el acta */ }
+        }
+        y += fh + gap;
+      }
+    }
+    titulo('Garantía y mantenimiento');
+    if (d.sinGarantia) {
+      lugar(14);
+      doc.setDrawColor(229, 13, 45).setLineWidth(0.6).setFillColor(253, 236, 238).roundedRect(M, y - 4, W, 11, 1.5, 1.5, 'FD');
+      doc.setLineWidth(0.2);
+      doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(200, 10, 40).text(pdfTxt(SIN_GARANTIA_TXT), M + 4, y + 2.6);
+      y += 12;
+    } else parrafo(d.garantia);
+    // Observaciones, la constancia y las firmas van juntas en la misma hoja.
+    const obsTxt = String(observaciones || '').trim() || 'Sin observaciones.';
+    lugar(14 + alto(obsTxt, W, 10) + 4 + alto(RECIBE_TXT, W, 9) + 32);
+    titulo('Observaciones');
+    parrafo(obsTxt);
+    y += 2;
+    parrafo(RECIBE_TXT, 9);
+    y += 20;
+    const fw2 = (W - 30) / 2;
+    doc.setDrawColor(40).line(M, y, M + fw2, y);
+    doc.line(210 - M - fw2, y, 210 - M, y);
+    doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(0).text('Por SLAVON', M + fw2 / 2, y + 5, { align: 'center' });
+    doc.text('Cliente', 210 - M - fw2 / 2, y + 5, { align: 'center' });
+    doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(110).text(pdfTxt('Firma y aclaración'), M + fw2 / 2, y + 9.5, { align: 'center' });
+    doc.text(pdfTxt('Firma, aclaración y DNI'), 210 - M - fw2 / 2, y + 9.5, { align: 'center' });
+    // Nombre del archivo sin acentos ni eñes (algunos celulares los cambian por «download»).
+    const nombre = pdfTxt(`Acta de entrega - ${d.clienteNombre}${d.pedido ? ' - Pedido ' + d.pedido : ''}`)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w .()-]/g, '').slice(0, 80);
+    doc.save(`${nombre}.pdf`);
   }
 
   /* ---------- Recibo de un pago (PDF para descargar o imprimir) ---------- */
@@ -3487,6 +3988,28 @@
 
   // Planos: se suben al almacenamiento de archivos (Firebase Storage); en la obra queda el link, el nombre y la fecha.
   const PLANO_MAX_MB = 15;
+  // Foto (se achica un poco y sigue legible) o PDF, listo para subir al almacenamiento de archivos (planos y remitos).
+  async function archivoParaSubir(file) {
+    const id = uid() + uid();
+    if (/^image\//.test(file.type)) {
+      const b64 = await UI.compressImage(file, 3200, 0.85, 3000000);
+      return { id, nombre: file.name.replace(/\.[^.]+$/, '') + '.jpg', mime: 'image/jpeg', blob: b64Blob(b64, 'image/jpeg') };
+    }
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      if (file.size > PLANO_MAX_MB * 1024 * 1024) throw new Error(`«${file.name}» pesa más de ${PLANO_MAX_MB} MB.`);
+      return { id, nombre: file.name, mime: 'application/pdf', blob: file };
+    }
+    throw new Error(`«${file.name}» no es una foto ni un PDF.`);
+  }
+  function elegirArchivos(fn) {
+    const inp = h('input', { type: 'file', accept: 'image/*,application/pdf', multiple: true, style: { display: 'none' } });
+    inp.addEventListener('change', async () => { const files = [...inp.files]; inp.remove(); await fn(files); });
+    document.body.append(inp);
+    inp.click();
+  }
+  // Nombre de archivo sin acentos ni caracteres raros, para la ruta en el almacenamiento.
+  const nombreSeguro = (n) => String(n || 'archivo').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.-]+/g, '_').slice(-80);
+
   function planosEditor(o, onCambio) {
     const existentes = (o && o.planos) || [];
     const quitados = new Set();
@@ -3503,35 +4026,13 @@
         h('button.btn.small.ghost', { type: 'button', onclick: () => (p.blob ? window.open(URL.createObjectURL(p.blob), '_blank') : verPlano(p)) }, 'Ver'),
         h('button.btn.small.ghost', { type: 'button', 'aria-label': 'Quitar', onclick: () => { if (p.blob) nuevos.splice(nuevos.indexOf(p), 1); else quitados.add(p.id); paint(); if (onCambio) onCambio(); } }, icon('trash')))));
     };
-    const leer = async (file) => {
-      const id = uid() + uid();
-      if (/^image\//.test(file.type)) {
-        // Las fotos de planos se achican un poco (siguen legibles) para no ocupar de más.
-        const b64 = await UI.compressImage(file, 3200, 0.85, 3000000);
-        const bin = atob(b64);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        return { id, nombre: file.name.replace(/\.[^.]+$/, '') + '.jpg', mime: 'image/jpeg', blob: new Blob([bytes], { type: 'image/jpeg' }) };
+    const agregar = () => elegirArchivos(async (files) => {
+      for (const file of files) {
+        try { nuevos.push(await archivoParaSubir(file)); } catch (e) { UI.toast(e.message, 6000); }
       }
-      if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
-        if (file.size > PLANO_MAX_MB * 1024 * 1024) throw new Error(`«${file.name}» pesa más de ${PLANO_MAX_MB} MB.`);
-        return { id, nombre: file.name, mime: 'application/pdf', blob: file };
-      }
-      throw new Error(`«${file.name}» no es una foto ni un PDF.`);
-    };
-    const agregar = () => {
-      const inp = h('input', { type: 'file', accept: 'image/*,application/pdf', multiple: true, style: { display: 'none' } });
-      inp.addEventListener('change', async () => {
-        for (const file of [...inp.files]) {
-          try { nuevos.push(await leer(file)); } catch (e) { UI.toast(e.message, 6000); }
-        }
-        inp.remove();
-        paint();
-        if (onCambio) onCambio();
-      });
-      document.body.append(inp);
-      inp.click();
-    };
+      paint();
+      if (onCambio) onCambio();
+    });
     paint();
     const titulo = h('span', 'Plano');
     return {
@@ -3547,8 +4048,7 @@
       async guardar(obraId) {
         const subidos = [];
         for (const p of nuevos) {
-          const limpio = p.nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.-]+/g, '_').slice(-80);
-          const path = `obras/${obraId}/planos/${p.id}-${limpio}`;
+          const path = `obras/${obraId}/planos/${p.id}-${nombreSeguro(p.nombre)}`;
           const url = await cloud.upload(path, p.blob, p.mime);
           subidos.push({ id: p.id, nombre: p.nombre, mime: p.mime, path, url, tamano: p.blob.size, fecha: new Date().toISOString(), por: me.email, porNombre: me.nombre });
         }
@@ -3674,7 +4174,7 @@
       h('div', plazoOtroF),
       chk('conStock', 'Con stock (sale de stock, no se fabrica)', !!(o && o.conStock)),
       fila(
-        UI.field({ label: 'Fecha de entrega', name: 'fechaEntrega', type: 'date', value: o ? o.fechaEntrega : UI.addDays(UI.today(), 5) }),
+        UI.field({ label: 'Fecha de entrega estimada', name: 'fechaEntrega', type: 'date', value: o ? o.fechaEntrega : UI.addDays(UI.today(), 5) }),
         UI.field({ label: 'Garantía (años)', name: 'garantiaAnios', inputMode: 'decimal', value: gm ? String(CALC.round2(gm / 12)).replace('.', ',') : '', placeholder: 'Ej: 2' })),
       garantiaNota,
       formaF,
@@ -3828,7 +4328,7 @@
               op: 'set', col: 'obras', id, data: {
                 ...obra, estado: faltanDatosVenta(obra, venta).length ? 'venta' : 'vendida', fin: '', postventa: [], incidencias: [], responsable: '', equipo: '', flete: '',
                 instInicio: '', instFin: '', inicio: '',
-                etapas: window.obrasEtapas(k.tipo, opts).map((nombre) => ({ id: uid(), nombre, estado: 'pendiente', nota: '' })),
+                etapas: window.obrasEtapas(k.tipo, opts).map((nombre) => ({ id: uid(), nombre, estado: 'pendiente', nota: '', ...(nombre === window.OBRAS_BASE_APTA ? { tipo: 'base' } : {}) })),
                 checklist: checklistDefault(k.tipo, opts),
                 logistica: val.interior ? window.OBRAS_LOGISTICA.map((texto) => ({ id: uid(), texto, ok: false })) : [],
                 creadoPor: me.email, creadoPorNombre: me.nombre, creadoEn: cloud.serverTime(),
@@ -3858,13 +4358,14 @@
     if (!isNew && isAdmin) {
       actions.unshift({
         label: 'Eliminar', kind: 'danger', onClick: async () => {
-          if (!(await UI.confirm('¿Eliminar la obra?', `Se borra «${o.nombre}» con su venta, sus pagos, planos y todas sus fotos. No se puede deshacer.`, 'Eliminar'))) return false;
+          if (!(await UI.confirm('¿Eliminar la obra?', `Se borra «${o.nombre}» con su venta, sus pagos, planos, remitos y todas sus fotos. No se puede deshacer.`, 'Eliminar'))) return false;
           const ops = [{ op: 'delete', col: 'obras', id: o._id }, { op: 'delete', col: 'ventas', id: o._id },
             ...fotos.filter((f) => f.obraId === o._id).map((f) => ({ op: 'delete', col: 'fotos', id: f._id })),
+            ...(remitosObraId === o._id ? remitos : []).map((r) => ({ op: 'delete', col: `obras/${o._id}/remitos`, id: r._id })),
             ...(pagosPorObra[o._id] || []).flatMap((p) => [{ op: 'delete', col: `ventas/${o._id}/pagos`, id: p._id },
               ...(p.comprobantes || []).map((m) => ({ op: 'delete', col: `ventas/${o._id}/comprobantes`, id: m.id }))])];
           for (let i = 0; i < ops.length; i += 400) cloud.write(ops.slice(i, i + 400));
-          for (const p of o.planos || []) cloud.removeFile(p.path).catch(() => {});
+          for (const p of [...(o.planos || []), ...(remitosObraId === o._id ? remitos : [])]) cloud.removeFile(p.path).catch(() => {});
           go('ventas');
           UI.toast('Obra eliminada');
         },
@@ -3930,7 +4431,7 @@
   }
 
   function seedDemo() {
-    cloud.seedOnce('v9', (put) => {
+    cloud.seedOnce('v10', (put) => {
       const t = UI.today();
       const d = (n) => UI.addDays(t, n);
       const DEL = 'administrativo@demo.slavon';
@@ -4034,7 +4535,7 @@
         });
         const { multisportResidencial, ...cancha } = k;
         const garantia = k.sinGarantia ? { garantiaAnios: 0, garantiaMeses: 0 } : {};
-        put('obras', id, { ...base, ...o, ...cancha, ...garantia, conStock: !!ex.conStock, planos: ex.planos || [], materialesEntrega: ex.materiales || null, clienteId: clientes[key] || '', pedido: ex.pedido || '' });
+        put('obras', id, { ...base, ...o, ...cancha, ...garantia, conStock: !!ex.conStock, planos: ex.planos || [], materialesEntrega: ex.materiales || o.materialesEntrega || null, clienteId: clientes[key] || '', pedido: ex.pedido || '' });
         const vend = (ex.vendedores || ['melina']).map((k) => ({ id: 'vd_' + k, nombre: VEND[k] }));
         // Las de contado que ya pasaron a Entregas tienen la marca «Saldo cobrado».
         const marca = v.formaPago === 'contado' && ['en_curso', 'terminada'].includes(o.estado) ? { fecha: o.habilitadaFecha || o.fechaEntrega || t, por: DEL, porNombre: 'Delfina (demo)' } : null;
@@ -4053,6 +4554,16 @@
         put('_archivos', path, 'data:image/jpeg;base64,' + fotoEjemplo(texto, '#5b6770'));
         return { id: 'pl_' + obraId, nombre, mime: 'image/jpeg', path, url: 'demo:' + path, tamano: 0, fecha: new Date(Date.now() - 3 * 864e5).toISOString(), por: DEL, porNombre: 'Delfina (demo)' };
       };
+      // Remitos firmados de la demo (el archivo queda en este navegador).
+      const remitoDemo = (obraId, n, fechaEnt, nota, quien = 'Beto (demo)', por = BETO) => {
+        const id = `rm_${obraId}_${n}`;
+        const path = `obras/${obraId}/remitos/${id}-remito_${n}.jpg`;
+        put('_archivos', path, 'data:image/jpeg;base64,' + fotoEjemplo('Remito firmado · ' + nota, '#8a6d3b'));
+        put(`obras/${obraId}/remitos`, id, { obraId, nombre: `Remito ${n}.jpg`, mime: 'image/jpeg', path, url: 'demo:' + path, tamano: 0, fechaEntrega: fechaEnt, nota, por, porNombre: quien, subidoEn: new Date().toISOString() });
+      };
+      // Etapa 1 apta con la constancia en WhatsApp (las fotos las tiene alguien en su teléfono).
+      const baseWA = (list, quien, fecha) => list.map((e, i) => (i === 0 ? { ...e, tipo: 'base', whatsapp: { fecha, quien, por: '', porNombre: quien } } : e));
+      const cambio = (anterior, nueva, motivo, porNombre, fecha) => ({ anterior, nueva, motivo, por: '', porNombre, fecha });
       const fin11 = (primeraCuota, cuotas = 11) => ({ formaPago: 'financiado', cuotas, tasaMensual: 1, primeraCuota });
 
       /* ----- En Ventas (incompleta) ----- */
@@ -4101,19 +4612,20 @@
 
       /* ----- En entrega ----- */
       obra('e1', { nombre: 'Club Huracán – Cancha 1', ...cancha('futbol', 30, 60), ...cesp('Monofilamento 50 mm', 'verde'), ...cli('C. A. Huracán', 'Intendencia', ['tel', '11 5555 0201', 'Intendencia']),
-        ubicacion: 'Parque Patricios, CABA', fechaVenta: d(-40), plazo: 'fabricacion', fechaEntrega: d(-12), estado: 'en_curso', habilitadaFecha: d(-14), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(-10), instFin: d(2), equipo: 'Equipo AMBA 1', responsable: CAR, flete: 'Transporte del Sur · llegó el ' + UI.fmtDay(d(-11)), etapas: etapas('futbol', 5, true, {}, -10), checklist: check('futbol') },
+        ubicacion: 'Parque Patricios, CABA', fechaVenta: d(-40), plazo: 'fabricacion', fechaEntrega: d(-12), fechaEntregaReal: d(-11), cambiosEntrega: [cambio('', d(-11), 'Coordinado con la intendencia del club', 'Carajo (demo)', d(-14))], estado: 'en_curso', habilitadaFecha: d(-14), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(-10), instFin: d(2), equipo: 'Equipo AMBA 1', responsable: CAR, flete: 'Transporte del Sur · llegó el ' + UI.fmtDay(d(-11)), etapas: etapas('futbol', 5, true, {}, -10), checklist: check('futbol') },
       { precio: 38000, sena: 19000, senaFecha: d(-40), formaPago: 'contado' },
       { iva: { tipo: 'total', monto: 6595 }, facturacion: { aFacturar: 38000, facturas: [{ id: 'fa2', fecha: d(-38), numero: '0003-00000377', emisor: 'atlantis', emisorOtro: '', monto: 19000, pagoId: '', porNombre: 'Delfina (demo)' }] },
         checklist: { tildes: ['rosaPlanilla', 'rojoCarpeta', 'agendado', 'planillaCompra', 'detalleCompra', 'detalleSaldo', 'manual', 'garantia', 'ingresarPedido', 'derivarPago', 'calendario'], mail: 'si', percepciones: 'no', factura: { tiene: 'si', razonSocial: 'Club Atlético Huracán', cuit: '30-52654321-8' } },
         formato: 'F9', blancoManual: 120, planos: [planoDemo('e1', 'Plano F9 · 30 × 60 m', 'Plano Huracán F9.jpg')], materiales: { pegamento: { cantidad: 8, unidad: 'baldes', porNombre: 'Carajo (demo)' }, cinta: { cantidad: 120, unidad: 'm', porNombre: 'Carajo (demo)' } } });
       pago('e1', d(-14), 'USD', 19000, 1545, 'efectivo_usd', 'caja_usd');
       obra('e2', { nombre: 'La Finca – Pádel 2 y 3', ...cancha('padel_completa', 10, 20, 0, 'simple', 2), ...cesp('Textil pádel', 'azul'), ...cli('La Finca Country', 'Administración', ['tel', '11 5555 0202', 'Administración']),
-        ubicacion: 'Pilar, Buenos Aires', fechaVenta: d(-50), plazo: 'fabricacion', fechaEntrega: d(-6), estado: 'en_curso', habilitadaFecha: d(-8), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(-5), instFin: d(4), equipo: 'Equipo AMBA 2', responsable: BETO, etapas: etapas('padel_completa', 5, true, {}, -5), checklist: check('padel_completa') },
+        ubicacion: 'Pilar, Buenos Aires', fechaVenta: d(-50), plazo: 'fabricacion', fechaEntrega: d(-6), estado: 'en_curso', habilitadaFecha: d(-8), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(-5), instFin: d(4), equipo: 'Equipo AMBA 2', responsable: BETO, materialesEntrega: { pegamento: { cantidad: 6, unidad: 'baldes', porNombre: 'Beto (demo)' }, cinta: { cantidad: 90, unidad: 'm', porNombre: 'Beto (demo)' } }, etapas: baseWA(etapas('padel_completa', 5, true, {}, -5), 'Beto (demo)', d(-5)), checklist: check('padel_completa') },
       { precio: 52000, sena: 15600, senaFecha: d(-50), ...fin11(d(-20)), contratoFirmado: true, contratoFecha: d(-9), contratoPorNombre: 'Delfina (demo)' });
       pago('e2', d(-20), 'USD', 3673.09, 1550, 'cuenta', 'wmax', 'Cuota 1');
       obra('e3', { nombre: 'Club Norte – Pádel 1', ...cancha('padel_completa', 10, 20), ...cesp('Textil pádel', 'verde'), ...cli('Club Norte', 'Sr. Paredes', ['tel', '351 555 0203', 'Sr. Paredes']),
         ubicacion: 'Córdoba capital', interior: true, logistica: window.OBRAS_LOGISTICA.map((texto, i) => ({ id: 'l' + i, texto, ok: i < 3, porNombre: i < 3 ? 'Carajo (demo)' : '', fecha: i < 3 ? d(-15) : '' })), fechaVenta: d(-45), plazo: 'fabricacion', fechaEntrega: d(-16), estado: 'en_curso', habilitadaFecha: d(-18), instInicio: d(-14), instFin: d(-10), equipo: 'Instalador interior 1', responsable: CAR,
-        etapas: etapas('padel_completa', 3, false, {}, -14, 'Carajo (demo)'), checklist: check('padel_completa'),
+        materialesEntrega: { pegamento: { cantidad: 3, unidad: 'baldes', porNombre: 'Carajo (demo)' }, cinta: { cantidad: 45, unidad: 'm', porNombre: 'Carajo (demo)' } },
+        etapas: baseWA(etapas('padel_completa', 3, false, {}, -14, 'Carajo (demo)'), 'Sr. Paredes (cliente), se las mandó a Carajo', d(-14)), checklist: check('padel_completa'),
         incidencias: [{ id: 'i1', tipo: 'Falta material', detalle: 'Faltan 4 vidrios laterales, se pidieron a fábrica', avisadoCliente: true, resuelta: false, fecha: d(-11), porNombre: 'Carajo (demo)' }] },
       { precio: 27000, sena: 13500, senaFecha: d(-45), formaPago: 'contado' });
       pago('e3', d(-18), 'ARS', 20790000, 1540, 'cheque', 'cartera', 'Dos cheques diferidos', {
@@ -4122,11 +4634,13 @@
           { id: 'ch2', numero: '00098766', aNombreDe: 'Club Norte', banco: 'Banco de Córdoba', fechaCobro: d(12), monto: 10395000, estado: 'pendiente', cobradoFecha: '', cobradoTC: 0 },
         ] });
       obra('e4', { nombre: 'Tenis Club Banfield – Cancha 3', ...cancha('tenis', 18.3, 36.6), ...cesp('Tenis arena 20 mm', 'verde'), ...cli('Tenis Club Banfield', '', ['tel', '11 5555 0204', 'Secretaría']),
-        ubicacion: 'Banfield, Buenos Aires', fechaVenta: d(-30), plazo: 'fabricacion', fechaEntrega: d(1), estado: 'en_curso', habilitadaFecha: d(-2), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(2), instFin: d(4), equipo: 'Equipo AMBA 3', responsable: BETO, flete: 'A coordinar', etapas: etapas('tenis', 0), checklist: check('tenis') },
+        ubicacion: 'Banfield, Buenos Aires', fechaVenta: d(-30), plazo: 'fabricacion', fechaEntrega: d(1), fechaEntregaReal: d(8), cambiosEntrega: [cambio('', d(1), 'Coordinado por WhatsApp con la secretaría', 'Beto (demo)', d(-2)), cambio(d(1), d(8), 'La base no está apta: el club tiene que nivelar el sector norte', 'Beto (demo)', t)],
+        estado: 'en_curso', habilitadaFecha: d(-2), habilitadaPorNombre: 'Delfina (demo)', instInicio: d(8), instFin: d(10), equipo: 'Equipo AMBA 3', responsable: BETO, flete: 'A coordinar', etapas: etapas('tenis', 0), checklist: check('tenis'),
+        incidencias: [{ id: 'i4', tipo: 'Base no apta', detalle: 'Desnivel de 4 cm en el sector norte y falta la pendiente de desagüe', avisadoCliente: true, avisoFecha: t, avisoMedio: 'WhatsApp', avisoA: 'Secretaría del club (Laura)', resuelta: false, fecha: t, por: BETO, porNombre: 'Beto (demo)' }] },
       { precio: 14500, sena: 7250, senaFecha: d(-30), formaPago: 'contado' }, { blancoManual: 70 });
       pago('e4', d(-2), 'ARS', 11382500, 1570, 'cuenta', 'wmax');
       obra('e5', { nombre: 'Complejo La Cantera – F5 1 y 2', ...cancha('futbol', 20, 27.5, 0, 'simple', 2), ...cesp('Monofilamento 50 mm', 'verde'), ...cli('La Cantera SA', '', ['tel', '11 5555 0205', 'Oficina']),
-        ubicacion: 'Moreno, Buenos Aires', fechaVenta: d(-22), plazo: 'fabricacion', fechaEntrega: d(6), estado: 'en_curso', habilitadaFecha: t, habilitadaPorNombre: 'Delfina (demo)', responsable: BETO, etapas: etapas('futbol', 0), checklist: check('futbol') },
+        ubicacion: 'Moreno, Buenos Aires', fechaVenta: d(-22), plazo: 'fabricacion', fechaEntrega: d(6), fechaEntregaReal: d(3), cambiosEntrega: [cambio('', d(3), 'Coordinado con la oficina por teléfono', 'Beto (demo)', t)], estado: 'en_curso', habilitadaFecha: t, habilitadaPorNombre: 'Delfina (demo)', responsable: BETO, etapas: etapas('futbol', 0), checklist: check('futbol') },
       { precio: 30500, sena: 15250, senaFecha: d(-22), formaPago: 'contado' });
       pago('e5', t, 'USD', 15250, 1570, 'efectivo_usd', 'caja_usd');
       obra('e6', { nombre: 'Colegio Sarmiento – Multisport', ...cancha('futbol', 18, 25), ...cesp('Multisport', 'verde y rojo', true), ...cli('Colegio Sarmiento', '', ['tel', '11 5555 0206', 'Secretaría']),
@@ -4162,7 +4676,14 @@
       pago('t4', UI.addDays(fin4, -2), 'USD', 1600, 1000, 'efectivo_usd', 'caja_usd');
 
       /* ----- Fotos ----- */
-      foto('e1', 'e2', 'Huracán · base lista', false, -8, 'Carajo (demo)');
+      foto('e1', 'e0', 'Huracán · base lista', false, -11, 'Carajo (demo)');
+      foto('e1', 'e0', 'Huracán · base, sector arco', false, -11, 'Carajo (demo)');
+      foto('e4', 'e0', 'Banfield · desnivel en la base', false, 0);
+
+      /* ----- Remitos firmados ----- */
+      remitoDemo('e1', 1, d(-11), 'Remito 0001-00004410 · césped y blanco', 'Carajo (demo)', CAR);
+      remitoDemo('e1', 2, d(-9), 'Remito 0001-00004433 · arena y caucho', 'Carajo (demo)', CAR);
+      remitoDemo('e6', 1, t, 'Remito 0001-00004521 · césped y blanco (falta instalar)');
       foto('e1', 'e3', 'Huracán · tendido', false, -6, 'Carajo (demo)');
       foto('e1', 'e4', 'Huracán · pegado del verde', false, -4, 'Carajo (demo)');
       foto('e2', 'e2', 'La Finca · estructura', true, -3);

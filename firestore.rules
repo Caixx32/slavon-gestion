@@ -49,17 +49,32 @@ service cloud.firestore {
       allow create: if obrasGestion();
       allow delete: if obrasAdmin();
       // El encargado de obra sólo toca lo de la entrega y la instalación (queda registrado quién),
-      // incluidas las cantidades de pegamento y cinta (materialesEntrega) y el envío de cada ítem (envios).
-      // Los planos los ve pero no los cambia.
+      // incluidas las cantidades de pegamento y cinta (materialesEntrega), el envío de cada ítem (envios)
+      // y la fecha real de entrega coordinada con el cliente (fechaEntregaReal, con su historial en cambiosEntrega).
+      // La fecha estimada (fechaEntrega) sale de la venta: no la cambia. Los planos los ve pero no los cambia.
       allow update: if obrasGestion()
         || (obrasMember()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'etapas', 'checklist', 'logistica', 'incidencias', 'instInicio', 'instFin', 'equipo', 'responsable', 'flete', 'materialesEntrega', 'envios',
+            'fechaEntregaReal', 'cambiosEntrega',
             'estado', 'fin', 'postventa', 'editadoPor', 'editadoPorNombre', 'editadoEn'])
           // puede marcar la obra como entregada, pero no habilitar una venta
           && (!('estado' in request.resource.data.diff(resource.data).affectedKeys())
             || (resource.data.estado == 'en_curso' && request.resource.data.estado == 'terminada'))
           && request.resource.data.editadoPor == myEmail());
+
+      // Remitos firmados por el cliente al recibir los materiales: acá el link; el archivo en Storage (obras/{id}/remitos/).
+      // Los suben todos los de Obras (con su mail). Los borran admin y administrativo, o quien lo subió. No se editan.
+      match /remitos/{remitoId} {
+        allow read: if obrasMember();
+        allow create: if obrasMember()
+          && request.resource.data.por == myEmail()
+          && request.resource.data.obraId == id
+          && request.resource.data.path is string
+          && request.resource.data.path.matches('obras/' + id + '/remitos/.+');
+        allow delete: if obrasGestion() || (obrasMember() && resource.data.por == myEmail());
+        allow update: if false;
+      }
     }
 
     // Plata de cada venta (precio, forma de pago, cuotas, vendedores, revendedor, contrato): sólo admin y administrativo.

@@ -83,10 +83,11 @@ window.obrasEtapas = function obrasEtapas(tipo, { conInstalacion = true, conAren
   if (t.mantenimiento) return ['Revisión de la cancha', 'Reparación de uniones', 'Recarga de arena', 'Cepillado', 'Informe al cliente'];
   if (tipo === 'otro') return [];
   if (!conInstalacion) return ['Coordinar flete', 'Envío del césped', 'Entregado al cliente'];
+  // Etapa 1 = «Base apta», siempre primera y obligatoria cuando instala Slavon (con fotos o constancia en WhatsApp).
+  // Sin base apta no se avanzan las etapas de instalación (flete y envío sí: los materiales se pueden entregar antes).
   const cesped = [
     'Coordinar flete',
     'Envío del césped',
-    ...(t.estructura ? [] : ['Control de base apta']),
     'Tendido del césped',
     'Pegado del verde',
     'Corte para líneas blancas',
@@ -96,10 +97,16 @@ window.obrasEtapas = function obrasEtapas(tipo, { conInstalacion = true, conAren
     'Cepillado final – lista para usar',
   ];
   if (t.estructura) {
-    return ['Control de base apta', 'Pintura', 'Montaje de estructura', 'Cableado eléctrico', 'Montaje de luces', 'Vidrios', ...cesped];
+    return [window.OBRAS_BASE_APTA, 'Pintura', 'Montaje de estructura', 'Cableado eléctrico', 'Montaje de luces', 'Vidrios', ...cesped];
   }
-  return cesped;
+  return [window.OBRAS_BASE_APTA, ...cesped];
 };
+
+window.OBRAS_BASE_APTA = 'Base apta';
+// Etapas que no son de instalación: se pueden avanzar aunque la base todavía no esté apta.
+window.OBRAS_ETAPA_SIN_BASE = /flete|env[ií]o|entregad|retiro|log[ií]stica/i;
+// Cómo se le avisó al cliente que la base no está apta.
+window.OBRAS_AVISO_MEDIOS = ['WhatsApp', 'Llamada', 'Mail', 'En persona'];
 
 window.OBRAS_CHECKLIST = {
   comun: [

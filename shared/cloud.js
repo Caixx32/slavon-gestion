@@ -116,10 +116,11 @@ window.SGCloud = (() => {
       }
       return st;
     }
-    async function upload(path, blob, contentType) {
+    // meta: datos extra del archivo (ej. { por: mail de quien lo subió }, para que las reglas dejen borrarlo a esa persona).
+    async function upload(path, blob, contentType, meta) {
       const S = await storage();
       const r = S.ref(S.s, path);
-      await S.uploadBytes(r, blob, { contentType });
+      await S.uploadBytes(r, blob, meta ? { contentType, customMetadata: meta } : { contentType });
       return S.getDownloadURL(r);
     }
     async function fileURL(path) {
