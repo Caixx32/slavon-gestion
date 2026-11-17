@@ -1,6 +1,6 @@
 {
  "fuente": "https://www.bna.com.ar/Personas",
- "fecha": "2026-11-16",
+ "fecha": "2026-11-17",
  "fechaPagina": "2026-11-16",
  "billete": {
   "compra": 1525.0,
@@ -70,7 +70,17 @@
     "compra": 1542.0,
     "venta": 1551.0
    }
+  },
+  "2026-11-17": {
+   "billete": {
+    "compra": 1525.0,
+    "venta": 1575.0
+   },
+   "divisa": {
+    "compra": 1542.0,
+    "venta": 1551.0
+   }
   }
  },
- "actualizado": "2026-11-16T18:18-03:00"
+ "actualizado": "2026-11-17T01:01-03:00"
 }
