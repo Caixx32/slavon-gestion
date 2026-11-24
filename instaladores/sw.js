@@ -1,9 +1,9 @@
 'use strict';
 
 // App instalable y que abre sin señal. Al cambiar cualquier archivo, subí el número de CACHE.
-const CACHE = 'inst-v2';
+const CACHE = 'inst-v3';
 const SHELL = [
-  './', './index.html', './app.js?v=2', './inst.css?v=2', './manifest.webmanifest',
+  './', './index.html', './app.js?v=3', './inst.css?v=3', './manifest.webmanifest',
   '../shared/base.css?v=16', '../shared/config.js?v=17', '../shared/cloud.js?v=16', '../shared/ui.js?v=16', '../shared/boot.js?v=16',
   '../shared/vendor/jspdf.umd.min.js', '../shared/icons/logo.png',
   '../shared/icons/logo-white.png', '../shared/icons/favicon.png', '../shared/icons/icon-192.png',
