@@ -1,0 +1,36 @@
+/* Estilos propios de la app Instaladores (lo común está en ../shared/base.css). */
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.kpi { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px 14px; }
+.kpi b { display: block; font-size: 22px; line-height: 1.15; }
+.kpi span { font-size: 13px; color: var(--muted); font-weight: 600; }
+
+.saldo-big { font-size: 30px; font-weight: 800; letter-spacing: -.01em; }
+.saldo-big.debe { color: var(--red); }
+.saldo-big.favor { color: var(--blue); }
+.saldo-big.cero { color: var(--ok); }
+
+.acciones { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 4px; }
+@media (min-width: 700px) { .acciones { grid-template-columns: repeat(4, 1fr); } }
+
+.info-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 15px; }
+.info-row:first-child { border-top: 0; }
+.info-row > span { font-size: 13px; font-weight: 600; color: var(--muted); padding-top: 2px; }
+.info-row > div { min-width: 0; overflow-wrap: anywhere; }
+.info-row a { color: var(--blue); }
+
+.mov .monto { font-weight: 700; white-space: nowrap; text-align: right; }
+.mov .monto.trabajo { color: var(--red); }
+.mov .monto.pago { color: var(--ok); }
+.mov .saldo-linea { font-size: 12px; color: var(--muted); font-weight: 600; }
+
+.renglon { background: var(--card-2); border-radius: 12px; padding: 10px 10px 2px; margin-bottom: 10px; }
+.renglon .grid3 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.renglon .field { margin-bottom: 8px; }
+.renglon .importe { font-weight: 700; padding: 0 2px 8px; display: flex; align-items: center; }
+.total-trabajo { font-size: 18px; font-weight: 800; text-align: right; margin: 4px 0 14px; }
+
+.mes-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.mes-nav b { flex: 1; text-align: center; font-size: 17px; text-transform: capitalize; }
+
+input.search { margin-bottom: 12px; }

@@ -98,6 +98,7 @@
     tabs.push(['mas', 'menu', 'Más']);
     tabsEl.replaceChildren(...tabs.map(([id, ic, label, pc]) => h('button', { type: 'button', 'data-tab': id, class: pc ? 'pc-tab' : '', onclick: () => go(id) }, icon(ic), h('span', label))),
       h('div.side-only.side-apps', h('div.side-title', 'Otras apps'),
+        h('a', { href: '../instaladores/' }, 'Instaladores'),
         h('a', { href: 'https://caixx32.github.io/flota-slavon/' }, 'Flota'),
         h('a.off', 'Depósito'), h('a.off', 'Personal')));
     tabsEl.hidden = false;
