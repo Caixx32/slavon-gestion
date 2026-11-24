@@ -442,7 +442,14 @@
         con.querySelector('input').addEventListener('input', (e) => { r.concepto = e.target.value.trim(); });
         campos = [con, numF('Monto $ (en negativo si es descuento)', 'precio')];
       } else if (r.tipo === 'padel') {
-        campos = [h('div.grid3', numF('Canchas', 'cantidad'), numF('Precio por cancha $', 'precio'))];
+        const cantEl = h('b.stepper-n', fmtNum(r.cantidad || 0));
+        const cambiar = (d) => { r.cantidad = Math.max(1, (Number(r.cantidad) || 0) + d); cantEl.textContent = fmtNum(r.cantidad); upd(); };
+        const stepper = h('div.field', h('span', 'Canchas'),
+          h('div.stepper',
+            h('button.btn', { type: 'button', 'aria-label': 'Una cancha menos', onclick: () => cambiar(-1) }, '−'),
+            cantEl,
+            h('button.btn', { type: 'button', 'aria-label': 'Una cancha más', onclick: () => cambiar(1) }, '+')));
+        campos = [h('div.grid3', stepper, numF('Precio por cancha $', 'precio'))];
       } else {
         campos = [h('div.grid3', numF('m² instalados', 'cantidad'), numF('Precio por m² $', 'precio')), det];
       }
