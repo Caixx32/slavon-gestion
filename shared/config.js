@@ -4,11 +4,11 @@
 
 window.SG_CONFIG = {
   firebase: {
-    apiKey: 'COMPLETAR',
-    authDomain: 'COMPLETAR',
-    projectId: 'COMPLETAR',
-    storageBucket: 'COMPLETAR', // para los planos (Firebase Storage)
-    appId: 'COMPLETAR',
+    apiKey: 'AIzaSyD5xgSsxFIa2p3sdeT-r78Siq3PX07NqZQ',
+    authDomain: 'slavon-gestion.firebaseapp.com',
+    projectId: 'slavon-gestion',
+    storageBucket: 'slavon-gestion.firebasestorage.app', // para los planos (Firebase Storage)
+    appId: '1:376794417662:web:a2641fc1b4e641ca4498af',
   },
 
   // Este mail siempre es administrador de todo (también está fijo en firestore.rules).
