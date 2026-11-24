@@ -20,5 +20,6 @@ window.SG_CONFIG = {
     admin: { name: 'Administración', roles: { admin: 'Acceso' } },
     deposito: { name: 'Depósito', roles: { admin: 'Admin', encargado: 'Encargado' } },
     personal: { name: 'Personal', roles: { admin: 'Acceso' } },
+    instaladores: { name: 'Instaladores', roles: { admin: 'Acceso' } },
   },
 };

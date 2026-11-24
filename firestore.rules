@@ -143,6 +143,44 @@ service cloud.firestore {
       allow write: if obrasGestion();
     }
 
+    /* ---------- Instaladores (trabajos y pagos a los equipos de instalación) ---------- */
+    // Sólo quien tiene acceso a la app Instaladores (administración). Los encargados de obra no lo ven.
+    function instAcceso() { return role('instaladores') == 'admin'; }
+
+    // Equipos: no se borran, se dan de baja (activo = false) para no perder su cuenta.
+    match /instaladores/{id} {
+      allow read: if instAcceso();
+      allow create, update: if instAcceso() && request.resource.data.nombre is string && request.resource.data.activo is bool;
+      allow delete: if isOwner();
+    }
+    match /instTarifas/{id} {
+      allow read: if instAcceso();
+      allow create, update: if instAcceso()
+        && request.resource.data.nombre is string
+        && request.resource.data.unidad in ['m2', 'obra']
+        && request.resource.data.precio is number && request.resource.data.precio >= 0;
+      allow delete: if isOwner();
+    }
+    // Trabajos y pagos: se editan y se borran (cargas mal hechas), queda quién lo hizo.
+    match /instTrabajos/{id} {
+      allow read, delete: if instAcceso();
+      allow create, update: if instAcceso()
+        && request.resource.data.instaladorId is string
+        && request.resource.data.fecha is string
+        && request.resource.data.items is list
+        && request.resource.data.total is number && request.resource.data.total > 0
+        && request.resource.data.editadoPor == myEmail();
+    }
+    match /instPagos/{id} {
+      allow read, delete: if instAcceso();
+      allow create, update: if instAcceso()
+        && request.resource.data.instaladorId is string
+        && request.resource.data.fecha is string
+        && request.resource.data.monto is number && request.resource.data.monto > 0
+        && request.resource.data.forma in ['transferencia', 'efectivo', 'otro']
+        && request.resource.data.editadoPor == myEmail();
+    }
+
     // Lo que no está listado arriba (Administración, Depósito, Personal) queda cerrado hasta que se armen esas apps.
   }
 }

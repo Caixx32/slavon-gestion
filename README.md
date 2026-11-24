@@ -6,6 +6,7 @@ Apps web internas de **SLAVON**. Cada app tiene su propio link, pero todas compa
 |---|---|---|
 | Inicio (links a todas) | https://caixx32.github.io/slavon-gestion/ | Lista |
 | **Obras** | https://caixx32.github.io/slavon-gestion/obras/ | Lista |
+| **Instaladores** | https://caixx32.github.io/slavon-gestion/instaladores/ | Lista |
 | Administración | `/admin/` | Próximamente |
 | Depósito | `/deposito/` | Próximamente |
 | Personal | `/personal/` | Próximamente |
@@ -91,6 +92,20 @@ Tipos: fútbol, pádel solo césped, pádel cancha completa, hockey, tenis, resi
 
 Los datos de plata están en una colección aparte (`ventas`, con sus pagos y comprobantes adentro) que el encargado de obra no puede leer, igual que los catálogos: lo imponen las reglas de Firestore (`firestore.rules`), no sólo la pantalla.
 
+## Instaladores
+
+Lo que se le debe y lo que se le pagó a cada equipo de instalación. La usa administración (permiso «Acceso» en *Usuarios y permisos*); los encargados de obra no la ven.
+
+- **Equipos:** nombre del equipo, a quién se le paga (el jefe, que reparte), teléfono, alias o CBU, zona (AMBA o interior) y notas. No se borran: se dan de baja y conservan su cuenta.
+- **Tarifas:** por m² instalado o precio fijo por cancha u obra. Botón «Cargar la lista inicial» (fútbol, hockey, tenis, residencial, pádel solo césped, pádel completa, blanco) sin precios, para completar. Al cargar un trabajo se copia el precio: cambiar una tarifa no cambia los trabajos ya cargados.
+- **Trabajos** (carga manual): equipo, fecha, obra y uno o varios renglones: tarifa × cantidad (precio editable) o un monto fijo (adicional, viático, pasajes; en negativo si es un descuento).
+- **Pagos** en pesos: fecha, monto, forma (transferencia, efectivo u otro), desde qué cuenta o caja y n° de operación. Muestra cuánto se le debe y el botón «Pagar todo». Un pago de más queda como adelanto a favor nuestro.
+- **Saldo** de cada equipo = trabajos − pagos, con el saldo después de cada movimiento. Trabajos y pagos se editan y se borran (queda quién lo hizo).
+- **Resumen de cuenta en PDF** y mensaje de **WhatsApp** al jefe del equipo con los últimos trabajos y el saldo.
+- **Movimientos:** mes por mes, de todos o de un equipo, con el total de trabajos y lo pagado.
+
+Datos: `instaladores`, `instTarifas`, `instTrabajos` (con `items` y `total`) e `instPagos`. Para que funcione con datos reales hay que volver a pegar `firestore.rules` en Firebase (*Firestore Database → Reglas → Publicar*).
+
 ## Usuarios
 
 Un usuario por persona para todas las apps: *Obras → Más → Usuarios y permisos*. Ahí se elige a qué apps entra cada uno y con qué permiso, y si puede manejar usuarios. `juanmarcospaterno@gmail.com` es siempre administrador de todo.
@@ -117,6 +132,7 @@ Un usuario por persona para todas las apps: *Obras → Más → Usuarios y permi
 |---|---|
 | `shared/` | Lo común a todas las apps: configuración de Firebase, conexión, login y permisos, pantalla de usuarios, estilos, íconos. En `shared/vendor/` van jsPDF (MIT) para los PDF y JSZip (MIT) para el .zip de comprobantes; funcionan sin conexión. |
 | `obras/` | App Obras (`app.js`), tipos de obra, etapas y modelos de césped (`etapas.js`), cuentas de la venta: m², cuotas e importes (`calculos.js`), estilos propios, app instalable (`sw.js`, `manifest.webmanifest`). |
+| `instaladores/` | App Instaladores (`app.js`), estilos propios, app instalable (`sw.js`, `manifest.webmanifest`). |
 | `firestore.rules` | Reglas de seguridad de la base para pegar en Firebase (incluye pagos y catálogos). |
 | `storage.rules` | Reglas de Firebase Storage. Planos: los ven todos los de Obras, los suben y borran admin y administración. Remitos: los ven y suben todos los de Obras; los borran admin, administración o quien lo subió. |
 
