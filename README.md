@@ -97,14 +97,14 @@ Los datos de plata están en una colección aparte (`ventas`, con sus pagos y co
 Lo que se le debe y lo que se le pagó a cada equipo de instalación. La usa administración (permiso «Acceso» en *Usuarios y permisos*); los encargados de obra no la ven.
 
 - **Equipos:** nombre del equipo, a quién se le paga (el jefe, que reparte), teléfono, alias o CBU, zona (AMBA o interior) y notas. No se borran: se dan de baja y conservan su cuenta.
-- **Tarifas:** por m² instalado o precio fijo por cancha u obra. Botón «Cargar la lista inicial» (fútbol, hockey, tenis, residencial, pádel solo césped, pádel completa, blanco) sin precios, para completar. Al cargar un trabajo se copia el precio: cambiar una tarifa no cambia los trabajos ya cargados.
-- **Trabajos** (carga manual): equipo, fecha, obra y uno o varios renglones: tarifa × cantidad (precio editable) o un monto fijo (adicional, viático, pasajes; en negativo si es un descuento).
+- **Precios de cada equipo:** precio por m² (fútbol, hockey, residencial), precio fijo por cancha de pádel (césped) y mínimo de m² por obra (450 por defecto: si hacen menos, se pagan 450). Se cargan en «Editar» de cada equipo; cambiarlos no cambia los trabajos ya cargados. Con la app vacía aparece el botón para crear Esteban, Francisco, Agustín y Enrique.
+- **Trabajos** (carga manual): equipo, fecha, obra y uno o varios renglones: m² de fútbol, hockey o residencial (aplica el mínimo), canchas de pádel, o un monto fijo (adicional, viático, pasajes; en negativo si es un descuento). Los precios del equipo se completan solos y se pueden cambiar en ese trabajo.
 - **Pagos** en pesos: fecha, monto, forma (transferencia, efectivo u otro), desde qué cuenta o caja y n° de operación. Muestra cuánto se le debe y el botón «Pagar todo». Un pago de más queda como adelanto a favor nuestro.
 - **Saldo** de cada equipo = trabajos − pagos, con el saldo después de cada movimiento. Trabajos y pagos se editan y se borran (queda quién lo hizo).
 - **Resumen de cuenta en PDF** y mensaje de **WhatsApp** al jefe del equipo con los últimos trabajos y el saldo.
 - **Movimientos:** mes por mes, de todos o de un equipo, con el total de trabajos y lo pagado.
 
-Datos: `instaladores`, `instTarifas`, `instTrabajos` (con `items` y `total`) e `instPagos`. Para que funcione con datos reales hay que volver a pegar `firestore.rules` en Firebase (*Firestore Database → Reglas → Publicar*).
+Datos: `instaladores` (con `precioM2`, `precioPadel`, `minimoM2`), `instTrabajos` (con `items` y `total`) e `instPagos`. Para que funcione con datos reales hay que volver a pegar `firestore.rules` en Firebase (*Firestore Database → Reglas → Publicar*).
 
 ## Usuarios
 

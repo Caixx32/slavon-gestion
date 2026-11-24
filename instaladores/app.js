@@ -4,8 +4,9 @@
  * Instaladores Slavon: lo que se le debe y lo que se le pagó a cada equipo de instalación.
  *
  * - Equipos: se le paga al jefe del equipo (él reparte). Se dan de baja, no se borran.
- * - Tarifas: por m² instalado o precio fijo por cancha u obra. Cambiar una tarifa no cambia los trabajos ya cargados.
- * - Trabajos: se cargan a mano (obra, fecha y uno o varios renglones: tarifa × cantidad, o un adicional/viático).
+ * - Precios propios de cada equipo: por m² (fútbol, hockey, residencial, con un mínimo de m² por obra, 450 por defecto)
+ *   y precio fijo por cancha de pádel (césped). Cambiar un precio no cambia los trabajos ya cargados.
+ * - Trabajos: se cargan a mano (obra, fecha y uno o varios renglones: m², canchas de pádel o un adicional/viático).
  * - Pagos: en pesos, parciales o totales. Un pago de más queda como adelanto a favor nuestro.
  * - Saldo de cada equipo = trabajos − pagos. Resumen de cuenta en PDF y aviso por WhatsApp.
  *
@@ -18,16 +19,11 @@
   let me = null;
   let cloud = null;
   let instaladores = [];
-  let tarifas = [];
   let trabajos = [];
   let pagos = [];
   let cargado = { instaladores: false };
   const ui = { q: '', bajas: false, mes: UI.today().slice(0, 7), movInst: '' };
 
-  const UNIDADES = {
-    m2: { cant: 'm²', precio: 'Precio por m²', largo: 'por m²' },
-    obra: { cant: 'Canchas / obras', precio: 'Precio por cancha u obra', largo: 'por cancha' },
-  };
   const FORMAS = { transferencia: 'Transferencia', efectivo: 'Efectivo', otro: 'Otro' };
   const ZONAS = { amba: 'AMBA', interior: 'Interior' };
 
@@ -86,7 +82,6 @@
         cargado.instaladores = true;
         render();
       }, err);
-      cloud.subscribe('instTarifas', (items) => { tarifas = items; render(); }, err);
       cloud.subscribe('instTrabajos', (items) => { trabajos = items; render(); }, err);
       cloud.subscribe('instPagos', (items) => { pagos = items; render(); }, err);
       window.addEventListener('hashchange', render);
@@ -95,7 +90,7 @@
   });
 
   function buildTabs() {
-    const tabs = [['saldos', 'users', 'Saldos'], ['movimientos', 'list', 'Movimientos'], ['tarifas', 'tag', 'Tarifas'], ['mas', 'menu', 'Más']];
+    const tabs = [['saldos', 'users', 'Saldos'], ['movimientos', 'list', 'Movimientos'], ['mas', 'menu', 'Más']];
     tabsEl.replaceChildren(...tabs.map(([id, ic, label]) => h('button', { type: 'button', 'data-tab': id, onclick: () => go(id) }, icon(ic), h('span', label))),
       h('div.side-only.side-apps', h('div.side-title', 'Otras apps'),
         h('a', { href: '../obras/' }, 'Obras'),
@@ -114,7 +109,6 @@
     tabsEl.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.tab === activa));
     if (r === 'inst') viewInst(id);
     else if (r === 'movimientos') viewMovimientos();
-    else if (r === 'tarifas') viewTarifas();
     else if (r === 'mas') viewMas();
     else if (r === 'usuarios' && me.super) SG.usersScreen(main, () => go('mas'));
     else viewSaldos();
@@ -160,9 +154,13 @@
   }
 
   function conceptoTrabajo(t) {
-    const items = (t.items || []).map((it) => (it.tipo === 'adicional'
-      ? it.concepto || 'Adicional'
-      : `${it.concepto} ${fmtNum(it.cantidad)} ${it.unidad === 'm2' ? 'm²' : it.cantidad === 1 ? 'cancha' : 'canchas'}`));
+    const items = (t.items || []).map((it) => {
+      if (it.tipo === 'adicional') return it.concepto || 'Adicional';
+      const n = Number(it.cantidad) || 0;
+      if (it.tipo === 'padel' || (it.tipo === 'tarifa' && it.unidad !== 'm2')) return `${it.concepto || 'Pádel césped'} ${fmtNum(n)} ${n === 1 ? 'cancha' : 'canchas'}`;
+      const pag = Number(it.pagados) || n;
+      return `${it.concepto} ${fmtNum(n)} m²` + (pag > n ? ` (se pagan ${fmtNum(pag)} m² mínimo)` : '');
+    });
     return [t.obra, items.join(' · ')].filter(Boolean).join(' — ');
   }
   const conceptoPago = (p) => ['Pago', FORMAS[p.forma] || '', p.detalle].filter(Boolean).join(' · ');
@@ -199,9 +197,14 @@
         ? h('div.list', lista.map((i) => h('div.item', { onclick: () => go('inst/' + i._id) },
           h('div.grow',
             h('div.ellipsis', { style: { fontWeight: 700 } }, i.nombre, i.activo === false ? h('span.badge', { style: { marginLeft: '8px' } }, 'De baja') : null),
-            h('div.small.muted.ellipsis', [i.jefe, ZONAS[i.zona]].filter(Boolean).join(' · '))),
+            h('div.small.muted.ellipsis', faltaPrecio(i)
+              ? 'Falta cargar sus precios'
+              : `${plata(i.precioM2)}/m² (mín. ${fmtNum(minimoDe(i))} m²) · ${plata(i.precioPadel)} pádel`)),
+          faltaPrecio(i) ? h('span.badge.warn', 'Sin precios') : null,
           saldoBadge(cuentas[i._id].saldo), icon('chev'))))
-        : h('div.list', h('div.empty', instaladores.length ? 'No hay equipos con esa búsqueda.' : 'Todavía no hay equipos. Tocá «Nuevo equipo».')),
+        : h('div.list', h('div.empty', instaladores.length ? 'No hay equipos con esa búsqueda.' : [
+          h('p', 'Todavía no hay equipos.'),
+          h('button.btn.primary', { type: 'button', onclick: crearEquiposIniciales }, icon('users'), 'Crear Esteban, Francisco, Agustín y Enrique')])),
       h('label.check.small', h('input', { type: 'checkbox', checked: ui.bajas, onchange: (e) => { ui.bajas = e.target.checked; render(); } }), 'Mostrar equipos dados de baja'));
   }
 
@@ -231,6 +234,8 @@
           h('button.btn', { type: 'button', onclick: () => resumenPDF(i) }, icon('file'), 'Resumen PDF'),
           wa ? h('a.btn', { href: UI.waLink(i.telefono, textoWhatsApp(i, c)), target: '_blank', rel: 'noopener' }, icon('whatsapp'), 'WhatsApp') : null)),
       h('div.card',
+        infoRow('Por m²', faltaPrecio(i) && !(Number(i.precioM2) > 0) ? h('span', { style: { color: 'var(--warn)', fontWeight: 600 } }, 'Falta cargar') : `${plata(i.precioM2)} (fútbol, hockey, residencial) · mínimo ${fmtNum(minimoDe(i))} m² por obra`),
+        infoRow('Pádel', !(Number(i.precioPadel) > 0) ? h('span', { style: { color: 'var(--warn)', fontWeight: 600 } }, 'Falta cargar') : `${plata(i.precioPadel)} por cancha (césped)`),
         infoRow('Cobra', i.jefe),
         infoRow('Teléfono', i.telefono ? [i.telefono, wa ? h('span', ' · ', h('a', { href: wa, target: '_blank', rel: 'noopener' }, 'WhatsApp')) : null] : ''),
         infoRow('Alias / CBU', i.alias ? [i.alias, ' · ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); copiar(i.alias); } }, 'Copiar')] : ''),
@@ -278,16 +283,32 @@
 
   /* ---------- Alta y edición de equipos ---------- */
 
+  const MINIMO_M2 = 450;
+  const minimoDe = (i) => (i && Number(i.minimoM2) >= 0 && i.minimoM2 !== '' && i.minimoM2 != null ? Number(i.minimoM2) : MINIMO_M2);
+  const faltaPrecio = (i) => !(Number(i.precioM2) > 0) || !(Number(i.precioPadel) > 0);
+
   function editInstalador(i) {
     const isNew = !i;
+    const num = (name, label, val) => {
+      const f = UI.field({ label, name, value: montoTxt(val), inputMode: 'decimal' });
+      moneyInput(f.querySelector('input'));
+      return f;
+    };
     const body = h('div',
-      UI.field({ label: 'Nombre del equipo', name: 'nombre', value: i ? i.nombre : '', required: true, placeholder: 'Ej: Equipo AMBA 1' }),
+      UI.field({ label: 'Nombre del equipo', name: 'nombre', value: i ? i.nombre : '', required: true, placeholder: 'Ej: Esteban' }),
+      h('div.renglon',
+        h('div.small', { style: { fontWeight: 700, marginBottom: '8px' } }, 'Lo que se le paga'),
+        h('div.grid3',
+          num('precioM2', 'Precio por m² $ (fútbol, hockey, residencial)', i ? i.precioM2 : 0),
+          num('precioPadel', 'Precio por cancha de pádel $', i ? i.precioPadel : 0)),
+        num('minimoM2', 'Mínimo de m² que se paga por obra', i ? minimoDe(i) : MINIMO_M2)),
       UI.field({ label: 'A quién se le paga (jefe del equipo)', name: 'jefe', value: i ? i.jefe : '', placeholder: 'Nombre y apellido' }),
       UI.field({ label: 'Teléfono', name: 'telefono', type: 'tel', value: i ? i.telefono : '', placeholder: '11 5555-5555' }),
       UI.field({ label: 'Alias o CBU para transferirle', name: 'alias', value: i ? i.alias : '' }),
       UI.field({ label: 'Zona', name: 'zona', type: 'select', value: i ? i.zona : 'amba', options: Object.entries(ZONAS) }),
       UI.field({ label: 'Notas', name: 'notas', type: 'textarea', value: i ? i.notas : '' }),
-      isNew ? null : h('label.check', h('input', { type: 'checkbox', name: 'activo', checked: i.activo !== false }), 'Activo (si se destilda, queda de baja pero se conserva su cuenta)'));
+      isNew ? null : h('label.check', h('input', { type: 'checkbox', name: 'activo', checked: i.activo !== false }), 'Activo (si se destilda, queda de baja pero se conserva su cuenta)'),
+      h('p.small.muted', 'Si cambiás los precios, los trabajos ya cargados no cambian.'));
     UI.sheet({
       title: isNew ? 'Nuevo equipo' : 'Editar equipo',
       body: [body],
@@ -297,9 +318,14 @@
           label: 'Guardar', kind: 'primary', onClick: () => {
             const v = UI.values(body);
             if (!v.nombre) throw new Error('Poné el nombre del equipo.');
+            const precioM2 = r2(parseNum(v.precioM2) || 0);
+            const precioPadel = r2(parseNum(v.precioPadel) || 0);
+            const minimoM2 = v.minimoM2 === '' ? MINIMO_M2 : r2(parseNum(v.minimoM2) || 0);
+            if (precioM2 < 0 || precioPadel < 0 || minimoM2 < 0) throw new Error('Los precios no pueden ser negativos.');
             const id = isNew ? cloud.newId() : i._id;
             cloud.put('instaladores', id, {
-              nombre: v.nombre, jefe: v.jefe, telefono: v.telefono, alias: v.alias, zona: v.zona, notas: v.notas,
+              nombre: v.nombre, precioM2, precioPadel, minimoM2,
+              jefe: v.jefe, telefono: v.telefono, alias: v.alias, zona: v.zona, notas: v.notas,
               activo: isNew ? true : v.activo, ...creado(i), ...stamp(),
             });
             UI.toast('Guardado');
@@ -310,11 +336,20 @@
     });
   }
 
+  const EQUIPOS_INICIALES = ['Esteban', 'Francisco', 'Agustín', 'Enrique'];
+  function crearEquiposIniciales() {
+    cloud.write(EQUIPOS_INICIALES.map((nombre) => ({
+      op: 'set', col: 'instaladores', id: cloud.newId(),
+      data: { nombre, precioM2: 0, precioPadel: 0, minimoM2: MINIMO_M2, jefe: nombre, telefono: '', alias: '', zona: 'amba', notas: '', activo: true, ...creado(null), ...stamp() },
+    })));
+    UI.toast('Equipos creados: entrá a cada uno y poné sus precios.', 5000);
+  }
+
   function selectInst(value, onChange) {
     const opts = instaladores
       .filter((i) => i.activo !== false || i._id === value)
       .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
-      .map((i) => [i._id, i.nombre + (i.jefe ? ` (${i.jefe})` : '')]);
+      .map((i) => [i._id, i.nombre + (i.jefe && i.jefe !== i.nombre ? ` (${i.jefe})` : '')]);
     const f = UI.field({ label: 'Equipo', name: 'instaladorId', type: 'select', value: value || '', options: [['', 'Elegí el equipo…'], ...opts], required: true });
     if (onChange) f.querySelector('select').addEventListener('change', (e) => onChange(e.target.value));
     return f;
@@ -322,71 +357,111 @@
 
   /* ---------- Trabajos ---------- */
 
+  // Tipos de renglón: césped por m² (con mínimo), pádel a precio fijo por cancha, o un monto fijo.
+  const DEPORTES_M2 = ['Fútbol', 'Hockey', 'Residencial'];
+  const m2Pagados = (r) => Math.max(Number(r.cantidad) || 0, Number(r.minimo) || 0);
+  function importeRenglon(r) {
+    if (r.tipo === 'adicional') return r2(Number(r.precio) || 0);
+    if (r.tipo === 'm2') return r2(m2Pagados(r) * (Number(r.precio) || 0));
+    return r2((Number(r.cantidad) || 0) * (Number(r.precio) || 0));
+  }
+  // Trabajos cargados con la versión anterior (tarifas generales).
+  function normalizarRenglon(x) {
+    if (x.tipo !== 'tarifa') return { ...x };
+    return x.unidad === 'm2'
+      ? { tipo: 'm2', concepto: x.concepto, cantidad: x.cantidad, minimo: 0, precio: x.precio }
+      : { tipo: 'padel', concepto: x.concepto || 'Pádel césped', cantidad: x.cantidad, precio: x.precio };
+  }
+
   function editTrabajo(t, instId) {
     const isNew = !t;
     if (!instaladores.some((i) => i.activo !== false) && isNew) return UI.toast('Primero cargá un equipo.');
-    const tarifasActivas = () => tarifas.filter((x) => x.activo !== false).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
-    const renglones = (t && t.items ? t.items : [{ tipo: 'tarifa', tarifaId: '', concepto: '', unidad: 'm2', cantidad: 0, precio: 0 }]).map((x) => ({ ...x }));
+    let inst = instDe(t ? t.instaladorId : instId || '');
+    const nuevoRenglon = (tipo, concepto) => {
+      if (tipo === 'padel') return { tipo, concepto: 'Pádel césped', cantidad: 1, precio: inst ? Number(inst.precioPadel) || 0 : 0 };
+      return { tipo: 'm2', concepto: concepto || 'Fútbol', cantidad: 0, minimo: minimoDe(inst), precio: inst ? Number(inst.precioM2) || 0 : 0 };
+    };
+    const renglones = t && t.items ? t.items.map(normalizarRenglon) : [nuevoRenglon('m2')];
     const cont = h('div');
     const totalEl = h('div.total-trabajo');
+    const avisoEl = h('div');
     const obras = [...new Set(trabajos.map((x) => x.obra).filter(Boolean))].sort();
     const dl = h('datalist', { id: 'dl-obras' }, obras.map((o) => h('option', { value: o })));
     const obraF = UI.field({ label: 'Obra (cliente, club o lugar)', name: 'obra', value: t ? t.obra : '', placeholder: 'Ej: Club Ferro – cancha F7' });
     obraF.querySelector('input').setAttribute('list', 'dl-obras');
-    const instF = selectInst(t ? t.instaladorId : instId || '');
+    // Al cambiar de equipo se ponen sus precios y su mínimo en los renglones.
+    const instF = selectInst(inst ? inst._id : '', (v) => {
+      inst = instDe(v);
+      for (const r of renglones) {
+        if (r.tipo === 'm2') Object.assign(r, { precio: inst ? Number(inst.precioM2) || 0 : 0, minimo: minimoDe(inst) });
+        if (r.tipo === 'padel') r.precio = inst ? Number(inst.precioPadel) || 0 : 0;
+      }
+      pintar();
+    });
     const fechaF = UI.field({ label: 'Fecha (cuando terminó el trabajo)', name: 'fecha', type: 'date', value: t ? t.fecha : UI.today(), required: true });
     const notaF = UI.field({ label: 'Nota', name: 'nota', type: 'textarea', value: t ? t.nota : '' });
 
-    const importe = (r) => r2((Number(r.cantidad) || 0) * (Number(r.precio) || 0));
-    const total = () => r2(renglones.reduce((a, r) => a + importe(r), 0));
+    const total = () => r2(renglones.reduce((a, r) => a + importeRenglon(r), 0));
     const pintarTotal = () => { totalEl.textContent = 'Total: ' + plata(total()); };
 
     function renglonEl(r, idx) {
-      const opts = [['', 'Elegí la tarifa…'],
-        ...tarifasActivas().map((x) => [x._id, `${x.nombre} · ${x.precio ? plata(x.precio) : 'sin precio'} ${UNIDADES[x.unidad] ? UNIDADES[x.unidad].largo : ''}`]),
-        ...(r.tarifaId && !tarifasActivas().some((x) => x._id === r.tarifaId) ? [[r.tarifaId, r.concepto + ' (tarifa de baja)']] : []),
+      const valor = r.tipo === 'adicional' ? '_adic' : r.tipo === 'padel' ? 'padel' : 'm2_' + r.concepto;
+      const opts = [
+        ...DEPORTES_M2.map((d) => ['m2_' + d, `${d} (por m²)`]),
+        ...(r.tipo === 'm2' && !DEPORTES_M2.includes(r.concepto) ? [[valor, `${r.concepto} (por m²)`]] : []),
+        ['padel', 'Pádel césped (precio fijo por cancha)'],
         ['_adic', 'Adicional, viático o descuento (monto fijo)']];
-      const sel = UI.field({ label: `Renglón ${idx + 1}`, name: 'tar', type: 'select', value: r.tipo === 'adicional' ? '_adic' : r.tarifaId || '', options: opts });
+      const sel = UI.field({ label: `Renglón ${idx + 1}`, name: 'tipo', type: 'select', value: valor, options: opts });
       sel.querySelector('select').addEventListener('change', (e) => {
         const v = e.target.value;
-        if (v === '_adic') Object.assign(r, { tipo: 'adicional', tarifaId: '', concepto: '', unidad: 'monto', cantidad: 1, precio: 0 });
-        else {
-          const tar = tarifas.find((x) => x._id === v);
-          Object.assign(r, { tipo: 'tarifa', tarifaId: v, concepto: tar ? tar.nombre : '', unidad: tar ? tar.unidad : 'm2', precio: tar ? Number(tar.precio) || 0 : 0, cantidad: r.tipo === 'adicional' ? 0 : r.cantidad });
-          if (tar && tar.unidad === 'obra' && !r.cantidad) r.cantidad = 1;
-        }
+        if (v === '_adic') renglones[idx] = { tipo: 'adicional', concepto: '', cantidad: 1, precio: 0 };
+        else if (v === 'padel') renglones[idx] = nuevoRenglon('padel');
+        else if (r.tipo === 'm2') r.concepto = v.slice(3);
+        else renglones[idx] = nuevoRenglon('m2', v.slice(3));
         pintar();
       });
-      const imp = h('div.importe', plata(importe(r)));
-      const upd = () => { imp.textContent = plata(importe(r)); pintarTotal(); };
+      const imp = h('div.importe');
+      const det = h('div.small.muted', { style: { marginBottom: '6px' } });
+      const upd = () => {
+        imp.textContent = plata(importeRenglon(r));
+        det.textContent = r.tipo === 'm2' && (Number(r.cantidad) || 0) < (Number(r.minimo) || 0)
+          ? `Hizo ${fmtNum(r.cantidad)} m²: se le pagan ${fmtNum(r.minimo)} m² (mínimo).`
+          : '';
+        pintarTotal();
+      };
       const quitar = renglones.length > 1 ? h('button.btn.danger.small', { type: 'button', onclick: () => { renglones.splice(idx, 1); pintar(); } }, icon('trash'), 'Quitar') : null;
+      const numF = (label, key) => {
+        const f = UI.field({ label, name: key, value: montoTxt(r[key]), inputMode: 'decimal' });
+        moneyInput(f.querySelector('input')).addEventListener('input', (e) => { r[key] = parseNum(e.target.value) || 0; upd(); });
+        return f;
+      };
 
+      let campos;
       if (r.tipo === 'adicional') {
         const con = UI.field({ label: 'Concepto', name: 'con', value: r.concepto, placeholder: 'Viático, adicional, descuento…' });
         con.querySelector('input').addEventListener('input', (e) => { r.concepto = e.target.value.trim(); });
-        const mon = UI.field({ label: 'Monto $ (en negativo si es descuento)', name: 'mon', value: montoTxt(r.precio), inputMode: 'decimal' });
-        moneyInput(mon.querySelector('input')).addEventListener('input', (e) => { r.precio = parseNum(e.target.value) || 0; upd(); });
-        return h('div.renglon', sel, con, mon, h('div.row', imp, h('span.spacer'), quitar));
+        campos = [con, numF('Monto $ (en negativo si es descuento)', 'precio')];
+      } else if (r.tipo === 'padel') {
+        campos = [h('div.grid3', numF('Canchas', 'cantidad'), numF('Precio por cancha $', 'precio'))];
+      } else {
+        campos = [h('div.grid3', numF('m² instalados', 'cantidad'), numF('Precio por m² $', 'precio')), det];
       }
-      const u = UNIDADES[r.unidad] || UNIDADES.m2;
-      const can = UI.field({ label: u.cant, name: 'can', value: montoTxt(r.cantidad), inputMode: 'decimal' });
-      moneyInput(can.querySelector('input')).addEventListener('input', (e) => { r.cantidad = parseNum(e.target.value) || 0; upd(); });
-      const pre = UI.field({ label: u.precio + ' $', name: 'pre', value: montoTxt(r.precio), inputMode: 'decimal' });
-      moneyInput(pre.querySelector('input')).addEventListener('input', (e) => { r.precio = parseNum(e.target.value) || 0; upd(); });
-      return h('div.renglon', sel, h('div.grid3', can, pre), h('div.row', imp, h('span.spacer'), quitar));
+      const el = h('div.renglon', sel, campos, h('div.row', imp, h('span.spacer'), quitar));
+      upd();
+      return el;
     }
 
     function pintar() {
+      avisoEl.replaceChildren(...(inst && faltaPrecio(inst)
+        ? [h('p.small', { style: { color: 'var(--warn)', fontWeight: 600 } }, `${inst.nombre} no tiene cargado el precio por m² o por pádel. Ponelo acá o en «Editar» del equipo.`)]
+        : []));
       cont.replaceChildren(...renglones.map(renglonEl),
-        h('button.btn.small', { type: 'button', style: { marginBottom: '10px' }, onclick: () => { renglones.push({ tipo: 'tarifa', tarifaId: '', concepto: '', unidad: 'm2', cantidad: 0, precio: 0 }); pintar(); } }, icon('plus'), 'Agregar renglón'));
+        h('button.btn.small', { type: 'button', style: { marginBottom: '10px' }, onclick: () => { renglones.push(nuevoRenglon('m2')); pintar(); } }, icon('plus'), 'Agregar renglón'));
       pintarTotal();
     }
     pintar();
 
-    const sinTarifas = !tarifasActivas().length
-      ? h('p.small', { style: { color: 'var(--warn)' } }, 'No hay tarifas cargadas: podés cargarlas en la pestaña Tarifas o usar un renglón de monto fijo.')
-      : null;
-    const body = h('div', dl, instF, fechaF, obraF, sinTarifas, cont, totalEl, notaF);
+    const body = h('div', dl, instF, fechaF, obraF, avisoEl, cont, totalEl, notaF);
     const actions = [{ label: 'Cancelar' }];
     if (!isNew) {
       actions.unshift({
@@ -407,16 +482,17 @@
         if (!obra) throw new Error('Poné la obra.');
         const items = [];
         for (const [n, r] of renglones.entries()) {
+          const pre = `Renglón ${n + 1}: `;
           if (r.tipo === 'adicional') {
-            if (!r.concepto) throw new Error(`Renglón ${n + 1}: poné el concepto.`);
-            if (!r.precio || Number.isNaN(r.precio)) throw new Error(`Renglón ${n + 1}: poné el monto.`);
-            items.push({ tipo: 'adicional', concepto: r.concepto, unidad: 'monto', cantidad: 1, precio: r2(r.precio), importe: r2(r.precio) });
-          } else {
-            if (!r.tarifaId) throw new Error(`Renglón ${n + 1}: elegí la tarifa.`);
-            if (!(r.cantidad > 0)) throw new Error(`Renglón ${n + 1}: poné la cantidad.`);
-            if (!(r.precio > 0)) throw new Error(`Renglón ${n + 1}: poné el precio.`);
-            items.push({ tipo: 'tarifa', tarifaId: r.tarifaId, concepto: r.concepto, unidad: r.unidad, cantidad: r.cantidad, precio: r2(r.precio), importe: importe(r) });
+            if (!r.concepto) throw new Error(pre + 'poné el concepto.');
+            if (!r.precio) throw new Error(pre + 'poné el monto.');
+            items.push({ tipo: 'adicional', concepto: r.concepto, cantidad: 1, precio: r2(r.precio), importe: importeRenglon(r) });
+            continue;
           }
+          if (!(r.cantidad > 0)) throw new Error(pre + (r.tipo === 'padel' ? 'poné la cantidad de canchas.' : 'poné los m².'));
+          if (!(r.precio > 0)) throw new Error(pre + 'poné el precio.');
+          if (r.tipo === 'padel') items.push({ tipo: 'padel', concepto: r.concepto || 'Pádel césped', unidad: 'obra', cantidad: r.cantidad, precio: r2(r.precio), importe: importeRenglon(r) });
+          else items.push({ tipo: 'm2', concepto: r.concepto, unidad: 'm2', cantidad: r.cantidad, minimo: Number(r.minimo) || 0, pagados: m2Pagados(r), precio: r2(r.precio), importe: importeRenglon(r) });
         }
         const tot = total();
         if (!(tot > 0)) throw new Error('El total tiene que ser mayor a cero.');
@@ -509,65 +585,6 @@
         h('div.kpi', h('span', 'Pagado en el mes'), h('b', plata(tp))),
         h('div.kpi', h('span', 'Diferencia'), h('b', plata(r2(tt - tp))))),
       movs.length ? h('div.list', movs.map((x) => movItem(x, true))) : h('div.list', h('div.empty', 'No hay movimientos en este mes.')));
-  }
-
-  /* ---------- Tarifas ---------- */
-
-  const TARIFAS_INICIALES = [
-    ['Fútbol – césped', 'm2'], ['Hockey', 'm2'], ['Tenis', 'm2'], ['Residencial', 'm2'],
-    ['Pádel solo césped', 'obra'], ['Pádel cancha completa', 'obra'], ['Blanco / demarcación', 'm2'],
-  ];
-
-  function viewTarifas() {
-    const lista = tarifas.slice().sort((a, b) => (b.activo !== false) - (a.activo !== false) || (a.nombre || '').localeCompare(b.nombre || ''));
-    setMain(
-      h('h1', 'Tarifas'),
-      h('p.muted.small', 'Lo que se le paga al equipo por m² instalado o por cancha. Al cargar un trabajo se copia el precio: si después cambiás la tarifa, los trabajos ya cargados no cambian.'),
-      h('button.btn.primary.block', { type: 'button', style: { marginBottom: '14px' }, onclick: () => editTarifa(null) }, icon('plus'), 'Nueva tarifa'),
-      lista.length
-        ? h('div.list', lista.map((t) => h('div.item', { onclick: () => editTarifa(t) },
-          h('div.grow',
-            h('div', { style: { fontWeight: 700 } }, t.nombre, t.activo === false ? h('span.badge', { style: { marginLeft: '8px' } }, 'De baja') : null),
-            h('div.small.muted', t.precio ? `${plata(t.precio)} ${(UNIDADES[t.unidad] || {}).largo || ''}` : (UNIDADES[t.unidad] || {}).largo || '')),
-          !t.precio ? h('span.badge.warn', 'Falta precio') : null, icon('chev'))))
-        : h('div.list', h('div.empty',
-          h('p', 'Todavía no hay tarifas.'),
-          h('button.btn', { type: 'button', onclick: cargarTarifasIniciales }, 'Cargar la lista inicial (sin precios)'))));
-  }
-
-  function cargarTarifasIniciales() {
-    cloud.write(TARIFAS_INICIALES.map(([nombre, unidad]) => ({ op: 'set', col: 'instTarifas', id: cloud.newId(), data: { nombre, unidad, precio: 0, activo: true, ...creado(null), ...stamp() } })));
-    UI.toast('Listo: completá el precio de cada una.');
-  }
-
-  function editTarifa(t) {
-    const isNew = !t;
-    const pre = UI.field({ label: 'Precio $', name: 'precio', value: t ? montoTxt(t.precio) : '', inputMode: 'decimal' });
-    moneyInput(pre.querySelector('input'));
-    const body = h('div',
-      UI.field({ label: 'Nombre', name: 'nombre', value: t ? t.nombre : '', required: true, placeholder: 'Ej: Fútbol – césped' }),
-      UI.field({ label: 'Se paga', name: 'unidad', type: 'select', value: t ? t.unidad : 'm2', options: [['m2', 'Por m² instalado'], ['obra', 'Precio fijo por cancha u obra']] }),
-      pre,
-      isNew ? null : h('label.check', h('input', { type: 'checkbox', name: 'activo', checked: t.activo !== false }), 'Activa (si se destilda, no aparece al cargar trabajos)'));
-    UI.sheet({
-      title: isNew ? 'Nueva tarifa' : 'Editar tarifa',
-      body: [body],
-      actions: [
-        { label: 'Cancelar' },
-        {
-          label: 'Guardar', kind: 'primary', onClick: () => {
-            const v = UI.values(body);
-            const precio = r2(parseNum(v.precio) || 0);
-            if (!v.nombre) throw new Error('Poné el nombre.');
-            if (precio < 0) throw new Error('El precio no puede ser negativo.');
-            cloud.put('instTarifas', isNew ? cloud.newId() : t._id, {
-              nombre: v.nombre, unidad: v.unidad, precio, activo: isNew ? true : v.activo, ...creado(t), ...stamp(),
-            });
-            UI.toast('Guardado');
-          },
-        },
-      ],
-    });
   }
 
   /* ---------- Más ---------- */
@@ -683,31 +700,24 @@
     let orden = 1;
     const ops = [];
     const put = (col, id, data) => ops.push({ op: 'set', col, id, data: { ...base, orden: orden++, ...data } });
-    put('instaladores', 'i1', { nombre: 'Equipo AMBA 1', jefe: 'Raúl Gómez', telefono: '11 5555-1001', alias: 'raul.gomez.mp', zona: 'amba', notas: '', activo: true });
-    put('instaladores', 'i2', { nombre: 'Equipo AMBA 2', jefe: 'Miguel Sosa', telefono: '11 5555-1002', alias: 'miguel.sosa.bna', zona: 'amba', notas: '', activo: true });
-    put('instaladores', 'i3', { nombre: 'Equipo AMBA 3', jefe: 'Darío Paz', telefono: '11 5555-1003', alias: '', zona: 'amba', notas: 'Prefiere efectivo', activo: true });
-    put('instaladores', 'i4', { nombre: 'Instalador interior 1', jefe: 'Carlos Ruiz', telefono: '351 555-1004', alias: 'carlos.ruiz.uala', zona: 'interior', notas: 'Viaja solo, el cliente pone ayudantes', activo: true });
-    const T = {
-      fut: ['Fútbol – césped', 'm2', 1800], pc: ['Pádel solo césped', 'obra', 180000], pf: ['Pádel cancha completa', 'obra', 650000],
-      res: ['Residencial', 'm2', 2200], hoc: ['Hockey', 'm2', 1600],
-    };
-    for (const [k, [nombre, unidad, precio]] of Object.entries(T)) put('instTarifas', 't_' + k, { nombre, unidad, precio, activo: true });
-    const it = (k, cantidad) => { const [concepto, unidad, precio] = T[k]; return { tipo: 'tarifa', tarifaId: 't_' + k, concepto, unidad, cantidad, precio, importe: r2(cantidad * precio) }; };
-    const ad = (concepto, monto) => ({ tipo: 'adicional', concepto, unidad: 'monto', cantidad: 1, precio: monto, importe: monto });
-    const trab = (id, inst, fecha, obra, items, nota = '') => put('instTrabajos', id, { instaladorId: inst, fecha, obra, items, total: r2(items.reduce((a, x) => a + x.importe, 0)), nota });
+    const P = { i1: [1800, 180000], i2: [2000, 200000], i3: [1700, 170000], i4: [1900, 190000] };
+    [['i1', 'Esteban', '11 5555-1001', 'esteban.mp'], ['i2', 'Francisco', '11 5555-1002', 'fran.bna'], ['i3', 'Agustín', '11 5555-1003', ''], ['i4', 'Enrique', '351 555-1004', 'enrique.uala']]
+      .forEach(([id, nombre, telefono, alias]) => put('instaladores', id, { nombre, jefe: nombre, telefono, alias, zona: id === 'i4' ? 'interior' : 'amba', notas: '', activo: true, precioM2: P[id][0], precioPadel: P[id][1], minimoM2: 450 }));
+    const m2 = (inst, concepto, cantidad) => { const pagados = Math.max(cantidad, 450); return { tipo: 'm2', concepto, unidad: 'm2', cantidad, minimo: 450, pagados, precio: P[inst][0], importe: pagados * P[inst][0] }; };
+    const pad = (inst, cantidad) => ({ tipo: 'padel', concepto: 'Pádel césped', unidad: 'obra', cantidad, precio: P[inst][1], importe: cantidad * P[inst][1] });
+    const ad = (concepto, monto) => ({ tipo: 'adicional', concepto, cantidad: 1, precio: monto, importe: monto });
+    const trab = (id, inst, fecha, obra, items) => put('instTrabajos', id, { instaladorId: inst, fecha, obra, items, total: r2(items.reduce((a, x) => a + x.importe, 0)), nota: '' });
     const pago = (id, inst, fecha, monto, forma, detalle = '', nota = '') => put('instPagos', id, { instaladorId: inst, fecha, monto, forma, detalle, nota });
-    trab('w1', 'i1', d(-38), 'Club Atlético Haedo – F7', [it('fut', 1250)]);
+    trab('w1', 'i1', d(-38), 'Club Atlético Haedo – F7', [m2('i1', 'Fútbol', 1250)]);
     pago('p1', 'i1', d(-35), 2250000, 'transferencia', 'W. MAX Galicia');
-    trab('w2', 'i1', d(-9), 'Parque Patricios – F5', [it('fut', 800)]);
+    trab('w2', 'i1', d(-9), 'Parque Patricios – F5', [m2('i1', 'Fútbol', 800)]);
     pago('p2', 'i1', d(-6), 1000000, 'transferencia', 'W. MAX Galicia', 'A cuenta');
-    trab('w3', 'i2', d(-20), 'Mayling – 2 canchas pádel', [it('pf', 2)]);
-    pago('p3', 'i2', d(-18), 1300000, 'transferencia', 'Atlantis');
-    trab('w4', 'i2', d(-3), 'Casa Pilar – jardín', [it('res', 120)]);
-    trab('w5', 'i3', d(-12), 'Ranch Sports – pádel', [it('pc', 3)]);
+    trab('w3', 'i2', d(-20), 'Mayling – 2 canchas pádel', [pad('i2', 2)]);
+    trab('w4', 'i2', d(-3), 'Casa Pilar – jardín', [m2('i2', 'Residencial', 120)]);
+    trab('w5', 'i3', d(-12), 'Ranch Sports – pádel', [pad('i3', 3)]);
     pago('p4', 'i3', d(-12), 600000, 'efectivo', 'Caja oficina', 'Adelanto antes de terminar');
-    trab('w6', 'i4', d(-15), 'Córdoba capital – hockey', [it('hoc', 5000), ad('Viático 4 días', 160000), ad('Pasajes', 90000)]);
+    trab('w6', 'i4', d(-15), 'Córdoba capital – hockey', [m2('i4', 'Hockey', 5000), ad('Viático 4 días', 160000), ad('Pasajes', 90000)]);
     pago('p5', 'i4', d(-14), 4000000, 'transferencia', 'W. MAX Galicia');
-    pago('p6', 'i4', d(-2), 2000000, 'transferencia', 'W. MAX Galicia');
     cloud.write(ops);
   }
 })();
