@@ -1,14 +1,14 @@
 {
  "fuente": "https://www.bna.com.ar/Personas",
  "fecha": "2026-11-26",
- "fechaPagina": "2026-11-25",
+ "fechaPagina": "2026-11-26",
  "billete": {
-  "compra": 1580.0,
-  "venta": 1630.0
+  "compra": 1575.0,
+  "venta": 1625.0
  },
  "divisa": {
-  "compra": 1595.0,
-  "venta": 1604.0
+  "compra": 1592.5,
+  "venta": 1601.5
  },
  "historico": {
   "2026-11-05": {
@@ -143,14 +143,14 @@
   },
   "2026-11-26": {
    "billete": {
-    "compra": 1580.0,
-    "venta": 1630.0
+    "compra": 1575.0,
+    "venta": 1625.0
    },
    "divisa": {
-    "compra": 1595.0,
-    "venta": 1604.0
+    "compra": 1592.5,
+    "venta": 1601.5
    }
   }
  },
- "actualizado": "2026-11-26T00:08-03:00"
+ "actualizado": "2026-11-26T17:36-03:00"
 }
